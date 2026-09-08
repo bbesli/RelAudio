@@ -4,13 +4,11 @@ Bu dosya, bu depoda çalışan Claude Code oturumları için kalıcı bağlamdı
 
 ## Projenin durumu
 
-**Implementasyon başladı.** Plan onaylandı: `~/.claude/plans/shimmying-jingling-beaver.md`
+**Çalışan uygulama.** Arayüz, çekirdek, keşif, tepsi ve i18n yerinde.
+Açık kaynak yayımlandı: https://github.com/bbesli/RelAudio (MIT).
 
-Sıra: Ortam → doküman güncellemeleri → **Adım 1 spike + ölçüm (durak)** → çekirdek →
-ağ → arayüz → tepsi.
-
-Adım 1'in sonunda ölçüm sonuçları değerlendirilecek; kötü çıkarsa plan gözden geçirilir.
-Spike kodu `spike/` altında ve **atılacak** — kalıcı mimariye örnek alınmamalı.
+`spike/` altındaki Adım 1 doğrulama kodu **atılacak** — kalıcı mimariye örnek
+alınmamalı. Ölçüm sonuçları `docs/10-riskler.md` içinde.
 
 ## Proje nedir
 
@@ -19,10 +17,14 @@ Hedef platformlar: **Windows ve Linux.** macOS bilinçli olarak ertelendi —
 dokümanlardaki macOS bölümleri korunuyor ama kapsam dışı; macOS'a iş yapma,
 sorulmadıkça önerme. Referans ürün: AudioRelay.
 
-**Hedef: kişisel kullanım.** Yayımlanacak bir ürün değil. Paketleme (NSIS/AppImage),
-kod imzalama, updater, i18n, onboarding akışı ve VB-CABLE'ı pakete gömme
-**kapsam dışı**. Bunları planlama veya önerme; kullanıcı yayımlamaya karar verirse
-geri gelirler.
+**Hedef: açık kaynak, MIT.** Katkı kabul ediliyor.
+
+Hâlâ kapsam dışı olanlar: kod imzalama, otomatik güncelleme, VB-CABLE'ı kurulum
+paketine gömme (kullanıcı kendisi kuruyor — ADR-0003), macOS (ADR yok, docs/00).
+Bunlar istenirse tartışılabilir ama varsayılan kapsam bu değil.
+
+i18n **yapıldı**: 10 dil, `app/src/lib/i18n.ts`. Yeni dil eklerken
+`node scripts/check-i18n.mjs` eksik anahtarı yakalıyor — CI'da çalıştırılmalı.
 
 Test makineleri: Linux `192.168.1.113` (bu makine), Windows `192.168.1.103`.
 İki rol: **Server** (ses gönderir) ve **Player** (ses alır). Her cihaz ikisini
@@ -36,11 +38,14 @@ tepsi simgesinden geri açılır (Discord davranışı).
 Detay: `docs/02-mimari.md`, karar gerekçesi: `docs/01-teknoloji-secimi.md`.
 
 ```
-app/              Tauri v2 + Svelte + TypeScript   Arayüz, tepsi, ayarlar
-crates/relaudio-core     Rust kütüphane            Ses yakalama, çalma, ağ, keşif
-crates/relaudio-coremon  Rust binary (ayrı süreç)  Çekirdeği çalıştırır
-crates/relaudio-proto    Rust kütüphane            IPC + ağ protokolü tipleri
-spike/            Atılacak ölçüm kodu (Adım 1)
+app/                     Tauri v2 + Svelte 5      Arayüz, tepsi, ayarlar, i18n
+crates/relaudio-core     Rust kütüphane           Ses yakalama, çalma, ağ, keşif, config
+crates/relaudio-proto    Rust kütüphane           Ağ protokolü tipleri
+crates/relaudio-cli      Rust binary `relaudio`   Teşhis: devices, tone, level, send, recv
+spike/                   Atılacak ölçüm kodu (Adım 1)
+scripts/                 Kurulum, Windows derleme, i18n denetimi
+
+Çekirdek **ayrı süreç değil**, Tauri'ye kütüphane olarak bağlı (ADR-0005).
 ```
 
 Kritik kısıt: **ses motoru JavaScript'te yazılamaz.** Node'un ses donanımına
@@ -69,8 +74,12 @@ Arayüz kapandığında/çöktüğünde yayın kesilmemeli.
 
 ## Çalışma kuralları
 
-- **Dil:** Kullanıcı Türkçe yazıyor. Dokümanlar ve açıklamalar Türkçe. Kod, kod
-  yorumları, commit mesajları, tanımlayıcılar İngilizce olacak.
+- **Dil:** Kullanıcı Türkçe yazıyor. `docs/` ve kod yorumları Türkçe.
+  Tanımlayıcılar ve commit mesajları İngilizce/Türkçe karışabilir.
+  **Kullanıcıya görünen metinler:** arayüzde i18n üzerinden (10 dil),
+  çekirdek hata mesajlarında İngilizce — Türkçe hata İspanyolca arayüzde
+  tuhaf kaçıyordu.
+- **README İngilizce** (`README.md`); Türkçesi `README.tr.md`.
 - **Doküman biçimi:** Dosya adları `NN-konu.md` (Türkçe, ASCII, tireli). Başlıklarda
   ASCII olmayan karakter serbest, dosya adlarında değil.
 - **Yeni karar verildiğinde** `docs/adr/` altına ADR ekle ve ilgili dokümanı güncelle.
@@ -80,6 +89,19 @@ Arayüz kapandığında/çöktüğünde yayın kesilmemeli.
   `docs/00-genel-bakis.md` içinde.
 - Kullanıcı geliştirme ortamı: CachyOS (Arch tabanlı) Linux, PipeWire. Linux tarafı
   birincil geliştirme platformu; Windows test hedefi.
+
+## Derleme ve denetim
+
+```bash
+cargo test                                    # çekirdek
+cd app/src-tauri && cargo test                # oturum katmanı
+rustup target add x86_64-pc-windows-msvc      # bir kez
+cargo check --target x86_64-pc-windows-msvc   # Windows kodu Linux'ta cfg ile dışlanıyor
+node scripts/check-i18n.mjs                   # çeviri bütünlüğü
+```
+
+Sondan ikincisi önemli: `audio/windows.rs` normal Linux derlemesinde hiç
+kontrol edilmiyor.
 
 ## Bilinmeyenler
 

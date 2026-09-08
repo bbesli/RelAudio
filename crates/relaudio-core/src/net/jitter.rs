@@ -6,12 +6,20 @@
 use std::collections::BTreeMap;
 
 pub struct JitterBuffer {
-    /// seq → yük. Sessiz paketler boş vec olarak durur.
-    slots: BTreeMap<u16, Vec<u8>>,
+    /// Genişletilmiş sıra numarası → yük. Sessiz paketler boş vec olarak durur.
+    ///
+    /// Anahtar **u64**, ham u16 değil. Ham u16 ile `BTreeMap` sıralaması
+    /// 65535→0 sarmalamasında tersine dönüyordu: "en eski" diye seçilen kayıt
+    /// aslında en yenisi oluyor, sarmalama öncesi paketler erişilemez hâle
+    /// geliyor ve tampon bir daha hiç boşalmıyordu (dolayısıyla underrun
+    /// sayacı ve yeniden biriktirme histerezisi ölüyordu).
+    slots: BTreeMap<u64, Vec<u8>>,
     /// Çalmaya başlamadan önce biriktirilecek paket sayısı.
     target: usize,
-    /// Bir sonraki çalınacak sıra numarası.
-    next: Option<u16>,
+    /// Bir sonraki çalınacak genişletilmiş sıra numarası.
+    next: Option<u64>,
+    /// Son görülen genişletilmiş numara — sarmalamayı çözmek için.
+    last_ext: Option<u64>,
     started: bool,
     pub lost: u64,
     pub late: u64,
@@ -20,9 +28,20 @@ pub struct JitterBuffer {
     dropped: u64,
 }
 
-/// `a`, `b`'den sonra mı? 16-bit sarmalamaya karşı güvenli karşılaştırma.
-fn seq_gt(a: u16, b: u16) -> bool {
-    a != b && a.wrapping_sub(b) < 0x8000
+/// 16 bitlik sıra numarasını, en son görülene en yakın olacak şekilde
+/// 64 bite genişletir. Böylece sarmalama sıralamayı bozmuyor.
+fn extend(prev: Option<u64>, seq: u16) -> u64 {
+    match prev {
+        None => seq as u64,
+        Some(prev) => {
+            let prev_low = prev as u16;
+            let mut diff = seq.wrapping_sub(prev_low) as i32;
+            if diff >= 0x8000 {
+                diff -= 0x10000; // geriye doğru: geç gelmiş paket
+            }
+            (prev as i64 + diff as i64).max(0) as u64
+        }
+    }
 }
 
 impl JitterBuffer {
@@ -31,6 +50,7 @@ impl JitterBuffer {
             slots: BTreeMap::new(),
             target: target_packets.max(1),
             next: None,
+            last_ext: None,
             started: false,
             lost: 0,
             late: 0,
@@ -42,25 +62,29 @@ impl JitterBuffer {
 
     pub fn push(&mut self, seq: u16, payload: Vec<u8>) {
         self.received += 1;
+        let ext = extend(self.last_ext, seq);
+        // İleri giden en yüksek numarayı takip et; geç gelen paket referansı
+        // geriye çekmemeli.
+        self.last_ext = Some(self.last_ext.map_or(ext, |p| p.max(ext)));
+
         if let Some(next) = self.next {
             // Oynatma noktasını geçmiş paket işe yaramaz.
-            if seq_gt(next, seq) {
+            if ext < next {
                 self.late += 1;
                 return;
             }
         }
-        self.slots.insert(seq, payload);
+        self.slots.insert(ext, payload);
 
         // Tampon tavanı. Saat kayması telafisi (adaptif yeniden örnekleme,
         // docs/03) henüz yok; onsuz tampon yavaşça büyüyor ve gecikme zamanla
         // artıyor. Bu tavan gecikmeyi sınırlar — kalıcı çözüm değil, koruma.
         let cap = self.target * 4;
         while self.slots.len() > cap {
-            if let Some(&oldest) = self.slots.keys().next() {
-                self.slots.remove(&oldest);
-                self.dropped += 1;
-                self.next = Some(oldest.wrapping_add(1));
-            }
+            let Some(&oldest) = self.slots.keys().next() else { break };
+            self.slots.remove(&oldest);
+            self.dropped += 1;
+            self.next = Some(oldest + 1);
         }
     }
 
@@ -96,7 +120,7 @@ impl JitterBuffer {
             return None;
         }
         let next = self.next?;
-        self.next = Some(next.wrapping_add(1));
+        self.next = Some(next + 1);
         match self.slots.remove(&next) {
             Some(p) => Some(Some(p)),
             None => {
@@ -193,9 +217,44 @@ mod tests {
     }
 
     #[test]
-    fn sequence_comparison_survives_wraparound() {
-        assert!(seq_gt(0, 65535), "sarmalama sonrası 0, 65535'ten sonradır");
-        assert!(!seq_gt(65535, 0));
-        assert!(seq_gt(100, 99));
+    fn extends_sequence_numbers_across_the_wrap() {
+        assert_eq!(extend(None, 5), 5);
+        assert_eq!(extend(Some(65535), 0), 65536, "sarmalama ileri gitmeli");
+        assert_eq!(extend(Some(65536), 1), 65537);
+        assert_eq!(extend(Some(65536), 65535), 65535, "geç gelen geriye gitmeli");
+        assert_eq!(extend(Some(100), 99), 99);
+    }
+
+    /// Sarmalama anında tavan tetiklenirse eski kayıtlar erişilemez hâle
+    /// geliyordu: "en eski" ham u16 sırasına göre seçildiği için sarmalama
+    /// sonrası paket atılıyor, öncekiler sonsuza dek tamponda kalıyordu.
+    /// Sonuç: tampon hiç boşalmıyor, underrun sayacı ölüyor, yastık
+    /// bir daha kurulamıyor.
+    #[test]
+    fn survives_the_sequence_wrap_with_the_cap_active() {
+        let mut j = JitterBuffer::new(4); // tavan 16
+        // Sarmalamayı kapsayan bir pencere doldur.
+        for k in 0..24u32 {
+            let seq = (65530u32.wrapping_add(k) % 65536) as u16;
+            j.push(seq, vec![k as u8]);
+        }
+        assert!(j.len() <= 16, "tavan aşıldı: {}", j.len());
+
+        // Hepsi çalınabilmeli: sırayla ve boşluk vermeden.
+        let mut played = 0;
+        for _ in 0..40 {
+            match j.pop() {
+                Some(Some(_)) => played += 1,
+                Some(None) => {}
+                None => break,
+            }
+        }
+        assert_eq!(played, j_expected_playable(), "sarmalama sonrası paketler erişilemez kaldı");
+        assert!(j.is_empty(), "tampon boşalabilmeli");
+        assert_eq!(j.starved(), 1, "boşalınca yeniden biriktirmeye dönmeli");
+    }
+
+    fn j_expected_playable() -> usize {
+        16 // tavan kadar; gerisi drift eviction ile atıldı
     }
 }

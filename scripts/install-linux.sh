@@ -4,20 +4,30 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
-BIN="$ROOT/app/src-tauri/target/release/relaudio-app"
+GUI="$ROOT/app/src-tauri/target/release/relaudio-app"
+CLI="$ROOT/target/release/relaudio"
 
-if [ ! -x "$BIN" ]; then
-  echo "Derlenmiş uygulama yok. Önce:"
+if [ ! -x "$GUI" ]; then
+  echo "No built application found. First run:"
   echo "  cd $ROOT/app && npx tauri build --no-bundle"
   exit 1
 fi
 
-install -Dm755 "$BIN" "$HOME/.local/bin/relaudio"
+# GUI -> `relaudio`, CLI -> `relaudio-cli`.
+# Aynı ada kurulurlarsa README'deki teşhis komutları (relaudio tone, level…)
+# arayüzü açıyordu; argüman yok sayıldığı için sessizce yanlış şey oluyordu.
+install -Dm755 "$GUI" "$HOME/.local/bin/relaudio"
+if [ -x "$CLI" ]; then
+  install -Dm755 "$CLI" "$HOME/.local/bin/relaudio-cli"
+else
+  echo "Note: CLI not built (cargo build --release --bin relaudio) — skipping relaudio-cli"
+fi
 install -Dm644 "$ROOT/app/src-tauri/icons/128x128.png" \
   "$HOME/.local/share/icons/hicolor/128x128/apps/relaudio.png"
 install -Dm644 "$ROOT/app/src-tauri/icons/icon.png" \
   "$HOME/.local/share/icons/hicolor/512x512/apps/relaudio.png"
 
+mkdir -p "$HOME/.local/share/applications"
 cat > "$HOME/.local/share/applications/relaudio.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
@@ -35,9 +45,8 @@ command -v update-desktop-database >/dev/null && \
 command -v gtk-update-icon-cache >/dev/null && \
   gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 
-echo "Kuruldu."
-echo "  Çalıştırılabilir : ~/.local/bin/relaudio"
-echo "  Menü girdisi     : ~/.local/share/applications/relaudio.desktop"
+echo "Installed."
+echo "  App  : ~/.local/bin/relaudio        (GUI, also in your application menu)"
+echo "  CLI  : ~/.local/bin/relaudio-cli    (diagnostics: devices, tone, level)"
 echo
-echo "Uygulama menüsünde 'RelAudio' olarak görünmeli."
-echo "~/.local/bin PATH'te değilse terminalden tam yolla çalıştır."
+echo "If the commands are not found, ~/.local/bin is not on your PATH."

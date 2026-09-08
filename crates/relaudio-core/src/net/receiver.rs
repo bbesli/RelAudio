@@ -73,10 +73,22 @@ pub fn receive_loop(
                     current_ssrc = Some(header.ssrc);
                     *net_jitter.lock().unwrap() = JitterBuffer::new(target_packets);
                 }
+                // Yük uzunluğu beklenen blok boyutunda değilse paketi at.
+                // Aksi hâlde tek bir bozuk datagram çalma kuyruğunun kare
+                // hizasını kalıcı olarak kaydırıyor ve ses o andan sonra
+                // gürültüye dönüyor. Ağdaki başıboş bir paket bile yeter.
                 let payload = if header.flags.silence {
                     Vec::new()
                 } else {
-                    buf[HEADER_LEN..n].to_vec()
+                    let body = &buf[HEADER_LEN..n];
+                    if body.len() != PCM_PAYLOAD_LEN {
+                        log::debug!(
+                            "beklenmeyen yük boyutu {} (beklenen {PCM_PAYLOAD_LEN}), paket atlandı",
+                            body.len()
+                        );
+                        continue;
+                    }
+                    body.to_vec()
                 };
                 net_stats.packets.fetch_add(1, Ordering::Relaxed);
                 net_stats.bytes.fetch_add(n as u64, Ordering::Relaxed);
@@ -85,7 +97,28 @@ pub fn receive_loop(
         })
         .expect("thread başlatılamadı");
 
-    // Çalma döngüsü (bu thread)
+    // Çalma döngüsü (bu thread).
+    //
+    // Kapanış her yoldan geçmeli: `?` ile erken dönüldüğünde ağ thread'i
+    // durdurulmuyordu ve bağlı UDP portunu sonsuza dek tutuyordu. Aygıt
+    // kaybolduğunda (kulaklık çıkarıldı, pipewire yeniden başladı) port bir
+    // daha açılamıyor, kullanıcı uygulamayı yeniden başlatmak zorunda
+    // kalıyordu — her olayda bir thread daha sızıyordu.
+    let result = playback_loop(&mut out, &jitter, &stop, &stats);
+
+    stop.stop();
+    let _ = net.join();
+    log::info!("alım durdu");
+    return result;
+}
+
+/// Jitter buffer'dan okuyup çalar. Hata durumunda çağıran temizliği yapar.
+fn playback_loop(
+    out: &mut Box<dyn crate::audio::Playback>,
+    jitter: &Arc<Mutex<JitterBuffer>>,
+    stop: &Stopper,
+    stats: &Arc<ReceiverStats>,
+) -> Result<()> {
     let silence = vec![0u8; PCM_PAYLOAD_LEN];
 
     /// Bir blokun tepe genliği. Ses yolunda değil, çalma öncesi tek geçiş.
@@ -124,7 +157,5 @@ pub fn receive_loop(
         }
     }
 
-    let _ = net.join();
-    log::info!("alım durdu");
     Ok(())
 }

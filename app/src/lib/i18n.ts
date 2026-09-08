@@ -29,6 +29,9 @@ export const LOCALES: Locale[] = [
 type Dict = Record<string, string>;
 
 const tr: Dict = {
+  "tray.show": "Göster",
+  "tray.stopAll": "Tüm yayınları durdur",
+  "tray.quit": "Çıkış",
   "stats.outputDevice": "Çıkış",
   "stats.sourceDevice": "Kaynak",
   "player.feedback": "Geri besleme döngüsü",
@@ -133,6 +136,9 @@ const tr: Dict = {
 };
 
 const en: Dict = {
+  "tray.show": "Show",
+  "tray.stopAll": "Stop all streams",
+  "tray.quit": "Quit",
   "stats.outputDevice": "Output",
   "stats.sourceDevice": "Source",
   "player.feedback": "Feedback loop",
@@ -237,6 +243,9 @@ const en: Dict = {
 };
 
 const es: Dict = {
+  "tray.show": "Mostrar",
+  "tray.stopAll": "Detener todo",
+  "tray.quit": "Salir",
   "stats.outputDevice": "Salida",
   "stats.sourceDevice": "Origen",
   "player.feedback": "Bucle de realimentación",
@@ -308,6 +317,9 @@ const es: Dict = {
 };
 
 const de: Dict = {
+  "tray.show": "Anzeigen",
+  "tray.stopAll": "Alle Streams stoppen",
+  "tray.quit": "Beenden",
   "stats.outputDevice": "Ausgabe",
   "stats.sourceDevice": "Quelle",
   "player.feedback": "Rückkopplungsschleife",
@@ -377,6 +389,9 @@ const de: Dict = {
 };
 
 const fr: Dict = {
+  "tray.show": "Afficher",
+  "tray.stopAll": "Tout arrêter",
+  "tray.quit": "Quitter",
   "stats.outputDevice": "Sortie",
   "stats.sourceDevice": "Source",
   "player.feedback": "Boucle de retour",
@@ -446,6 +461,9 @@ const fr: Dict = {
 };
 
 const pt: Dict = {
+  "tray.show": "Mostrar",
+  "tray.stopAll": "Parar tudo",
+  "tray.quit": "Sair",
   "stats.outputDevice": "Saída",
   "stats.sourceDevice": "Origem",
   "player.feedback": "Ciclo de retorno",
@@ -515,6 +533,9 @@ const pt: Dict = {
 };
 
 const ru: Dict = {
+  "tray.show": "Показать",
+  "tray.stopAll": "Остановить всё",
+  "tray.quit": "Выход",
   "stats.outputDevice": "Вывод",
   "stats.sourceDevice": "Источник",
   "player.feedback": "Петля обратной связи",
@@ -584,6 +605,9 @@ const ru: Dict = {
 };
 
 const zh: Dict = {
+  "tray.show": "显示",
+  "tray.stopAll": "全部停止",
+  "tray.quit": "退出",
   "stats.outputDevice": "输出",
   "stats.sourceDevice": "来源",
   "player.feedback": "回授循环",
@@ -645,6 +669,9 @@ const zh: Dict = {
 };
 
 const hi: Dict = {
+  "tray.show": "दिखाएँ",
+  "tray.stopAll": "सब रोकें",
+  "tray.quit": "बाहर निकलें",
   "stats.outputDevice": "आउटपुट",
   "stats.sourceDevice": "स्रोत",
   "player.feedback": "फ़ीडबैक लूप",
@@ -706,6 +733,9 @@ const hi: Dict = {
 };
 
 const ar: Dict = {
+  "tray.show": "إظهار",
+  "tray.stopAll": "إيقاف الكل",
+  "tray.quit": "خروج",
   "stats.outputDevice": "الإخراج",
   "stats.sourceDevice": "المصدر",
   "player.feedback": "حلقة ارتجاع",

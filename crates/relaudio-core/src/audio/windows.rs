@@ -21,9 +21,34 @@ use crate::error::{Error, Result};
 
 const BITS: usize = 16;
 
+/// Olay bekleme zaman aşımı. Aygıt periyodundan belirgin uzun olmalı ki
+/// normal çalışmada tetiklenmesin, ama sessizlik doldurma çözünürlüğünü de
+/// belirlediği için çok uzun olmamalı.
+const TIMEOUT_MS: u32 = 50;
+
 fn com_init() {
     // Süreç başına bir kez yeterli; tekrar çağrılması zararsız.
     let _ = initialize_mta();
+}
+
+/// WASAPI HRESULT'larını okunur hâle getirir. Ham "0x8889000A" kullanıcıya
+/// hiçbir şey söylemiyor.
+fn explain_wasapi(raw: &str) -> String {
+    let hint = if raw.contains("0x8889000A") {
+        Some("device is in use by another application in exclusive mode")
+    } else if raw.contains("0x88890004") {
+        Some("device not found or disconnected")
+    } else if raw.contains("0x88890008") {
+        Some("audio format not supported by this device")
+    } else if raw.contains("0x8889000E") {
+        Some("Windows audio service is not running")
+    } else {
+        None
+    };
+    match hint {
+        Some(h) => format!("{h} ({raw})"),
+        None => raw.to_string(),
+    }
 }
 
 fn wasapi_err(what: &str, e: impl std::fmt::Display) -> Error {
@@ -86,22 +111,22 @@ pub fn list_devices() -> Result<Vec<DeviceInfo>> {
     collect(Direction::Capture, DeviceKind::Input, &def_capture, &mut out);
 
     if out.is_empty() {
-        return Err(Error::Enumerate("hiç ses aygıtı bulunamadı".into()));
+        return Err(Error::Enumerate("no audio devices found".into()));
     }
     Ok(out)
 }
 
 fn find_device(id: &str, dir: Direction) -> Result<Device> {
     let enumerator =
-        DeviceEnumerator::new().map_err(|e| wasapi_err("aygıt sayıcı kurulamadı", e))?;
+        DeviceEnumerator::new().map_err(|e| wasapi_err("could not create device enumerator", e))?;
     if id.is_empty() {
         return enumerator
             .get_default_device(&dir)
-            .map_err(|e| wasapi_err("varsayılan aygıt alınamadı", e));
+            .map_err(|e| wasapi_err("could not get default device", e));
     }
     let collection: DeviceCollection = enumerator
         .get_device_collection(&dir)
-        .map_err(|e| wasapi_err("aygıtlar listelenemedi", e))?;
+        .map_err(|e| wasapi_err("could not list devices", e))?;
     let count = collection.get_nbr_devices().unwrap_or(0);
     for i in 0..count {
         if let Ok(dev) = collection.get_device_at_index(i) {
@@ -118,6 +143,9 @@ struct WasapiCapture {
     capture: AudioCaptureClient,
     event: Handle,
     queue: VecDeque<u8>,
+    blockalign: usize,
+    /// Sessizlik doldurmayı gerçek zamana bağlamak için son üretim anı.
+    last_emit: std::time::Instant,
 }
 
 impl Capture for WasapiCapture {
@@ -125,21 +153,32 @@ impl Capture for WasapiCapture {
         while self.queue.len() < buf.len() {
             self.capture
                 .read_from_device_to_deque(&mut self.queue)
-                .map_err(|e| wasapi_err("yakalama okunamadı", e))?;
+                .map_err(|e| wasapi_err("capture read failed", e))?;
             if self.queue.len() >= buf.len() {
                 break;
             }
             // Hiçbir uygulama çalmıyorken loopback HİÇ veri üretmez ve olay
-            // tetiklenmez (docs/10, Bulgu 6). Zaman aşımında sessizlik üretip
-            // akışı sürdürüyoruz; gönderici bunu sessizlik bayrağıyla yollar.
-            if self.event.wait_for_event(200).is_err() {
-                let missing = buf.len() - self.queue.len();
-                self.queue.extend(std::iter::repeat(0u8).take(missing));
+            // tetiklenmez (docs/10, Bulgu 6). Zaman aşımında sessizlik
+            // üretiyoruz — ama **geçen gerçek zaman kadar**.
+            //
+            // Önceki sürüm zaman aşımı başına bir blok üretiyordu: 200 ms
+            // beklemeye 5 ms ses. Sessizlikte akış gerçek zamanın 40'ta biri
+            // hızında ilerliyor, alıcının tamponu boşalıyor ve ses yeniden
+            // başladığında araya uzun bir boşluk giriyordu.
+            if self.event.wait_for_event(TIMEOUT_MS).is_err() {
+                let elapsed = self.last_emit.elapsed().as_secs_f64();
+                let frames = (elapsed * SAMPLE_RATE as f64) as usize;
+                let want = (frames * self.blockalign).min(buf.len() - self.queue.len());
+                if want > 0 {
+                    self.queue.extend(std::iter::repeat(0u8).take(want));
+                    self.last_emit = std::time::Instant::now();
+                }
             }
         }
         for b in buf.iter_mut() {
             *b = self.queue.pop_front().unwrap_or(0);
         }
+        self.last_emit = std::time::Instant::now();
         Ok(buf.len())
     }
 }
@@ -157,17 +196,18 @@ pub fn open_capture(id: &str, kind: DeviceKind) -> Result<Box<dyn Capture>> {
         DeviceKind::Monitor => (Direction::Render, Direction::Capture),
         DeviceKind::Input => (Direction::Capture, Direction::Capture),
         DeviceKind::Output => {
-            return Err(Error::Unsupported("çıkış aygıtından yakalama yapılamaz"))
+            return Err(Error::Unsupported("cannot capture from an output device"))
         }
     };
 
     let device = find_device(id, dir)?;
+    let dev_name = device.get_friendlyname().unwrap_or_else(|_| "?".into());
     let mut client = device
         .get_iaudioclient()
-        .map_err(|e| wasapi_err("audio client alınamadı", e))?;
+        .map_err(|e| wasapi_err("could not get audio client", e))?;
     let (_def_period, min_period) = client
         .get_device_period()
-        .map_err(|e| wasapi_err("aygıt periyodu okunamadı", e))?;
+        .map_err(|e| wasapi_err("could not read device period", e))?;
 
     // Shared mode istenen tamponu vermiyor, motor periyodunu dayatıyor
     // (docs/10, Bulgu 7). Yine de minimumu istiyoruz.
@@ -178,25 +218,27 @@ pub fn open_capture(id: &str, kind: DeviceKind) -> Result<Box<dyn Capture>> {
     client
         .initialize_client(&format(), &stream_dir, &mode)
         .map_err(|e| Error::DeviceOpen {
-            device: id.to_string(),
-            source_msg: e.to_string(),
+            device: dev_name.clone(),
+            source_msg: explain_wasapi(&e.to_string()),
         })?;
     let event = client
         .set_get_eventhandle()
-        .map_err(|e| wasapi_err("olay tanıtıcısı alınamadı", e))?;
+        .map_err(|e| wasapi_err("could not get event handle", e))?;
     let capture = client
         .get_audiocaptureclient()
-        .map_err(|e| wasapi_err("capture client alınamadı", e))?;
+        .map_err(|e| wasapi_err("could not get capture client", e))?;
     client
         .start_stream()
-        .map_err(|e| wasapi_err("akış başlatılamadı", e))?;
+        .map_err(|e| wasapi_err("could not start stream", e))?;
 
-    log::info!("yakalama açıldı ({})", kind.as_str());
+    log::info!("yakalama açıldı: {dev_name} ({})", kind.as_str());
     Ok(Box::new(WasapiCapture {
         client,
         capture,
         event,
         queue: VecDeque::with_capacity(1 << 16),
+        blockalign: format().get_blockalign() as usize,
+        last_emit: std::time::Instant::now(),
     }))
 }
 
@@ -240,11 +282,11 @@ impl Playback for WasapiPlayback {
             let space = self
                 .client
                 .get_available_space_in_frames()
-                .map_err(|e| wasapi_err("boş alan sorgulanamadı", e))? as usize;
+                .map_err(|e| wasapi_err("could not query available space", e))? as usize;
 
             if space == 0 {
                 // Cihaz tamponu dolu; bir sonraki tampon boşalmasını bekle.
-                if self.event.wait_for_event(200).is_err() {
+                if self.event.wait_for_event(TIMEOUT_MS).is_err() {
                     // Cihaz yanıt vermiyor. Kalan veri kuyrukta duruyor,
                     // bir sonraki çağrıda tekrar denenecek.
                     break;
@@ -258,7 +300,7 @@ impl Playback for WasapiPlayback {
             }
             self.render
                 .write_to_device_from_deque(frames, &mut self.queue, None)
-                .map_err(|e| wasapi_err("çalma yazılamadı", e))?;
+                .map_err(|e| wasapi_err("playback write failed", e))?;
 
             // İlk saniyede ne olduğunu görmek için; sonra susar.
             self.written += frames as u64;
@@ -283,12 +325,13 @@ impl Drop for WasapiPlayback {
 pub fn open_playback(id: &str) -> Result<Box<dyn Playback>> {
     com_init();
     let device = find_device(id, Direction::Render)?;
+    let dev_name = device.get_friendlyname().unwrap_or_else(|_| "?".into());
     let mut client = device
         .get_iaudioclient()
-        .map_err(|e| wasapi_err("audio client alınamadı", e))?;
+        .map_err(|e| wasapi_err("could not get audio client", e))?;
     let (_def, min_period) = client
         .get_device_period()
-        .map_err(|e| wasapi_err("aygıt periyodu okunamadı", e))?;
+        .map_err(|e| wasapi_err("could not read device period", e))?;
     let fmt = format();
     let blockalign = fmt.get_blockalign() as usize;
 
@@ -299,22 +342,22 @@ pub fn open_playback(id: &str) -> Result<Box<dyn Playback>> {
     client
         .initialize_client(&fmt, &Direction::Render, &mode)
         .map_err(|e| Error::DeviceOpen {
-            device: id.to_string(),
-            source_msg: e.to_string(),
+            device: dev_name.clone(),
+            source_msg: explain_wasapi(&e.to_string()),
         })?;
     let event = client
         .set_get_eventhandle()
-        .map_err(|e| wasapi_err("olay tanıtıcısı alınamadı", e))?;
+        .map_err(|e| wasapi_err("could not get event handle", e))?;
     let render = client
         .get_audiorenderclient()
-        .map_err(|e| wasapi_err("render client alınamadı", e))?;
+        .map_err(|e| wasapi_err("could not get render client", e))?;
     client
         .start_stream()
-        .map_err(|e| wasapi_err("akış başlatılamadı", e))?;
+        .map_err(|e| wasapi_err("could not start stream", e))?;
 
     let buffer_frames = client.get_buffer_size().unwrap_or(0);
     log::info!(
-        "çalma açıldı — tampon {} kare ({:.1} ms), periyot varsayılan {:.1} ms / min {:.1} ms, blockalign {} bayt",
+        "çalma açıldı: {dev_name} — tampon {} kare ({:.1} ms), periyot varsayılan {:.1} ms / min {:.1} ms, blockalign {} bayt",
         buffer_frames,
         buffer_frames as f64 / SAMPLE_RATE as f64 * 1000.0,
         _def as f64 / 10_000.0,

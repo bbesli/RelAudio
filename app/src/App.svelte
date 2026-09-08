@@ -2,7 +2,7 @@
   import {
     listDevices, startServer, stopServer, startPlayer, stopPlayer, getStats,
     setMinimizeToTray, getLocalAddress, getPeers, getDeviceName, getMicHint,
-    getConfig, setConfig, getConfigPath, getLogPath,
+    getConfig, setConfig, getConfigPath, getLogPath, setTrayLabels,
     type Device, type Stats, type Peer, type MicHint, type Config,
   } from "./lib/api";
   import { LOCALES, translator, detectLocale, isRtl } from "./lib/i18n";
@@ -98,11 +98,17 @@
     document.documentElement.lang = lang;
   });
 
-  // Mikrofon modunda seçili çıkış artık listede yoksa uygun olana geç.
+  // Tepsi menüsü Rust tarafında kuruluyor; etiketleri dil değiştikçe gönder.
   $effect(() => {
-    if (!cfg || !outputChoices.length) return;
-    if (!outputChoices.some((d) => d.id === cfg!.player_device)) {
-      persist({ player_device: (outputChoices.find((d) => d.is_default) ?? outputChoices[0]).id });
+    const tr = translator(lang);
+    setTrayLabels(tr("tray.show"), tr("tray.stopAll"), tr("tray.quit")).catch(() => {});
+  });
+
+  // Seçili eş ağdan kaybolursa seçimi bırak, elle adres alanı geri gelsin.
+  // Aksi hâlde açılır liste boş kalıyor ve hedef girilemez hâle geliyordu.
+  $effect(() => {
+    if (selectedPeer && !peers.some((p) => p.id === selectedPeer)) {
+      selectedPeer = "";
     }
   });
 
@@ -117,6 +123,21 @@
   const PLAYER_RESTART_KEYS = ["player_device", "player_port", "player_buffer"] as const;
   const SERVER_RESTART_KEYS = ["server_device_monitor", "server_device_input", "server_source"] as const;
   let restartTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /**
+   * Sayı alanından geçerli bir değer çıkar.
+   *
+   * Alan boşaltıldığında `+""` sıfır veriyordu ve o sıfır diske yazılıyordu;
+   * bir sonraki açılışta port 0 ile başlamaya çalışılıyordu. min/max
+   * öznitelikleri yalnızca form gönderiminde denetleniyor, oninput'ta değil.
+   */
+  function clampInt(raw: string, min: number, max: number): number | null {
+    if (raw.trim() === "") return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return null;
+    const i = Math.round(n);
+    return i < min || i > max ? null : i;
+  }
 
   /** Ayarı güncelle, diske yaz, gerekiyorsa çalışan akışı yeniden kur. */
   function persist(patch: Partial<Config>) {
@@ -290,13 +311,19 @@
             <span class="lbl">{t("player.port")}</span>
             <input type="number" value={cfg.player_port} min="1024" max="65535"
                    disabled={stats?.player_running}
-                   oninput={(e) => persist({ player_port: +e.currentTarget.value })} />
+                   oninput={(e) => {
+                     const v = clampInt(e.currentTarget.value, 1024, 65535);
+                     if (v !== null) persist({ player_port: v });
+                   }} />
           </label>
           <label class="field">
             <span class="lbl">{t("player.buffer")} ({cfg.player_buffer * 5} ms)</span>
             <input type="number" value={cfg.player_buffer} min="2" max="60"
                    disabled={stats?.player_running}
-                   oninput={(e) => persist({ player_buffer: +e.currentTarget.value })} />
+                   oninput={(e) => {
+                     const v = clampInt(e.currentTarget.value, 2, 60);
+                     if (v !== null) persist({ player_buffer: v });
+                   }} />
             <span class="hint">{t("player.bufferHint")}</span>
           </label>
         </div>
@@ -408,6 +435,7 @@
       <div class="card tight">
         <h3>{cfg.player_mode === "mic" ? t("device.virtualCable") : t("device.output")}</h3>
         <DevicePicker devices={outputChoices} kind="output" value={cfg.player_device}
+                      onselect={(id) => persist({ player_device: id })}
                       label={cfg.player_mode === "mic" ? t("device.cableLabel") : t("device.outputLabel")}
                       hint={cfg.player_mode === "mic" ? t("device.cableHint") : ""}
                       emptyText={t("device.none")} defaultText={t("device.default")} />
@@ -418,10 +446,12 @@
         <h3>{t("device.source")}</h3>
         {#if cfg.server_source === "monitor"}
           <DevicePicker {devices} kind="monitor" value={cfg.server_device_monitor}
+                        onselect={(id) => persist({ server_device_monitor: id })}
                         label={t("device.systemSource")} hint={t("device.systemSourceHint")}
                         emptyText={t("device.none")} defaultText={t("device.default")} />
         {:else}
           <DevicePicker {devices} kind="input" value={cfg.server_device_input}
+                        onselect={(id) => persist({ server_device_input: id })}
                         label={t("device.micLabel")}
                         emptyText={t("device.none")} defaultText={t("device.default")} />
         {/if}

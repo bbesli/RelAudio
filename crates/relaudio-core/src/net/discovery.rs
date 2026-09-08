@@ -32,7 +32,10 @@ pub struct Discovery {
     daemon: ServiceDaemon,
     peers: Arc<Mutex<HashMap<String, Peer>>>,
     instance: String,
-    port: u16,
+    /// İlan edilen port. Kullanıcı oynatıcı portunu değiştirdiğinde
+    /// güncellenmeli, yoksa eşler eski porta yayın yapıyor ve hiçbir şey
+    /// ulaşmıyor.
+    port: std::sync::atomic::AtomicU16,
     self_name: String,
     /// Bu sürece özgü kimlik. Kendimizi eş listesinden ayıklamak için.
     instance_id: String,
@@ -48,6 +51,34 @@ fn os_name() -> &'static str {
     }
 }
 
+/// Bir IPv4 adresinin ilk üç sekizlisi ("192.168.1.113" → "192.168.1.").
+fn subnet_of(ip: &str) -> Option<String> {
+    let parts: Vec<&str> = ip.split('.').collect();
+    if parts.len() == 4 {
+        Some(format!("{}.{}.{}.", parts[0], parts[1], parts[2]))
+    } else {
+        None
+    }
+}
+
+/// Eşin ilan ettiği adresler arasından en olası ulaşılabilir olanı seçer.
+///
+/// Sıra: bizimle aynı /24'te olan IPv4 → herhangi bir IPv4 → herhangi biri.
+/// mDNS hem IPv4 hem IPv6, hem de VPN/sanal arayüzlerin adreslerini
+/// döndürüyor; ilkini almak link-local IPv6 veya erişilemez bir VPN adresi
+/// seçmeye yol açıyordu.
+fn pick_address(addrs: &[std::net::IpAddr], own_subnet: Option<&String>) -> Option<String> {
+    let v4: Vec<&std::net::IpAddr> = addrs.iter().filter(|a| a.is_ipv4()).collect();
+    if let Some(prefix) = own_subnet {
+        if let Some(a) = v4.iter().find(|a| a.to_string().starts_with(prefix.as_str())) {
+            return Some(a.to_string());
+        }
+    }
+    v4.first()
+        .map(|a| a.to_string())
+        .or_else(|| addrs.first().map(|a| a.to_string()))
+}
+
 /// Bu makinenin kullanıcıya gösterilecek adı.
 pub fn device_name() -> String {
     hostname::get()
@@ -60,7 +91,7 @@ impl Discovery {
     /// Keşfi başlatır: kendini ilan eder ve diğerlerini dinlemeye başlar.
     pub fn start(port: u16) -> Result<Self> {
         let daemon = ServiceDaemon::new()
-            .map_err(|e| Error::Stream(format!("mDNS başlatılamadı: {e}")))?;
+            .map_err(|e| Error::Stream(format!("could not start mDNS: {e}")))?;
 
         let name = device_name();
         // Örnek adı ağda tekil olmalı; ad + os yeterince ayırt edici.
@@ -84,11 +115,15 @@ impl Discovery {
 
         let receiver = daemon
             .browse(SERVICE_TYPE)
-            .map_err(|e| Error::Stream(format!("mDNS taraması başlatılamadı: {e}")))?;
+            .map_err(|e| Error::Stream(format!("could not start mDNS browse: {e}")))?;
 
         let map = peers.clone();
         let own = instance.clone();
         let own_iid = instance_id.clone();
+        // Kendi adresimizin /24'ü — eşin hangi arayüzünü seçeceğimize karar
+        // vermek için. VPN adaptörü olan makineler birden fazla adres ilan
+        // ediyor ve yanlışını seçersek paketler hiçbir yere gitmiyor.
+        let own_subnet = super::local_address().and_then(|a| subnet_of(&a));
         std::thread::Builder::new()
             .name("relaudio-mdns".into())
             .spawn(move || {
@@ -109,16 +144,9 @@ impl Discovery {
                             if peer_iid == own_iid || inst == own {
                                 continue;
                             }
-                            // IPv4 tercih et. mDNS hem IPv4 hem IPv6 döndürüyor;
-                            // ilkini almak link-local IPv6 seçmeye yol açıyordu
-                            // ve kullanıcıya anlamsız bir adres gösteriyordu.
-                            let addrs = info.get_addresses();
-                            let Some(addr) = addrs
-                                .iter()
-                                .find(|a| a.to_ip_addr().is_ipv4())
-                                .or_else(|| addrs.iter().next())
-                                .cloned()
-                            else {
+                            let addrs: Vec<std::net::IpAddr> =
+                                info.get_addresses().iter().map(|a| a.to_ip_addr()).collect();
+                            let Some(addr) = pick_address(&addrs, own_subnet.as_ref()) else {
                                 continue;
                             };
                             let get = |k: &str| {
@@ -131,7 +159,7 @@ impl Discovery {
                                 },
                                 os: get("os"),
                                 listening: get("listening") == "1",
-                                address: addr.to_string(),
+                                address: addr,
                                 port: info.get_port(),
                                 id: inst.clone(),
                             };
@@ -149,13 +177,13 @@ impl Discovery {
                 }
                 log::info!("mDNS tarama döngüsü bitti");
             })
-            .map_err(|e| Error::Stream(format!("mDNS thread'i başlatılamadı: {e}")))?;
+            .map_err(|e| Error::Stream(format!("could not spawn mDNS thread: {e}")))?;
 
         let d = Discovery {
             daemon,
             peers,
             instance,
-            port,
+            port: std::sync::atomic::AtomicU16::new(port),
             self_name: name,
             instance_id,
         };
@@ -181,18 +209,24 @@ impl Discovery {
             &self.instance,
             &format!("{}.local.", self.instance),
             (),
-            self.port,
+            self.port.load(std::sync::atomic::Ordering::Relaxed),
             props,
         )
-        .map_err(|e| Error::Stream(format!("mDNS servisi kurulamadı: {e}")))?
+        .map_err(|e| Error::Stream(format!("could not build mDNS service: {e}")))?
         // Adresleri işletim sisteminden otomatik al; elle IP vermek
         // çok arayüzlü makinelerde yanlış adres ilan etmeye yol açıyor.
         .enable_addr_auto();
 
         self.daemon
             .register(info)
-            .map_err(|e| Error::Stream(format!("mDNS kaydı yapılamadı: {e}")))?;
+            .map_err(|e| Error::Stream(format!("could not register mDNS service: {e}")))?;
         Ok(())
+    }
+
+    /// İlan edilen portu değiştirir ve yeniden ilan eder.
+    pub fn set_port(&self, port: u16, listening: bool) -> Result<()> {
+        self.port.store(port, std::sync::atomic::Ordering::Relaxed);
+        self.announce(listening)
     }
 
     pub fn peers(&self) -> Vec<Peer> {
@@ -204,5 +238,48 @@ impl Discovery {
     pub fn shutdown(&self) {
         let _ = self.daemon.unregister(&format!("{}.{}", self.instance, SERVICE_TYPE));
         let _ = self.daemon.shutdown();
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::IpAddr;
+
+    fn ip(s: &str) -> IpAddr {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn prefers_an_address_on_our_own_subnet() {
+        // VPN'li bir makine hem 10.16.x hem 192.168.1.x ilan ediyor.
+        let addrs = vec![ip("10.16.48.2"), ip("192.168.1.110")];
+        let own = "192.168.1.".to_string();
+        assert_eq!(
+            pick_address(&addrs, Some(&own)).as_deref(),
+            Some("192.168.1.110")
+        );
+    }
+
+    #[test]
+    fn prefers_ipv4_over_ipv6() {
+        let addrs = vec![ip("fe80::1"), ip("192.168.1.110")];
+        assert_eq!(
+            pick_address(&addrs, None).as_deref(),
+            Some("192.168.1.110")
+        );
+    }
+
+    #[test]
+    fn falls_back_to_whatever_exists() {
+        assert_eq!(pick_address(&[ip("fe80::1")], None).as_deref(), Some("fe80::1"));
+        assert_eq!(pick_address(&[], None), None);
+    }
+
+    #[test]
+    fn extracts_the_subnet_prefix() {
+        assert_eq!(subnet_of("192.168.1.113").as_deref(), Some("192.168.1."));
+        assert_eq!(subnet_of("::1"), None);
     }
 }

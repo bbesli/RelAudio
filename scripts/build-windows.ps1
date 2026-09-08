@@ -36,6 +36,7 @@ if (Test-Path $vswhere) {
 
 Write-Host "== komut satiri araci (teshis icin) ==" -ForegroundColor Cyan
 cargo build --release --bin relaudio
+if ($LASTEXITCODE -ne 0) { throw "CLI build failed (exit $LASTEXITCODE)." }
 
 Write-Host "== npm bagimliliklari ==" -ForegroundColor Cyan
 Set-Location (Join-Path $root "app")
@@ -43,6 +44,8 @@ npm install
 
 Write-Host "== derleme ==" -ForegroundColor Cyan
 npx tauri build --no-bundle
+# Eski bir exe duruyorsa Test-Path başarılı görünüyordu; asıl ölçüt çıkış kodu.
+if ($LASTEXITCODE -ne 0) { throw "Build failed (exit $LASTEXITCODE)." }
 
 $exe = Join-Path $root "app\src-tauri\target\release\relaudio-app.exe"
 $cli = Join-Path $root "target\release\relaudio.exe"

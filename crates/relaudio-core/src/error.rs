@@ -1,20 +1,27 @@
+//! Hata tipleri.
+//!
+//! Mesajlar **İngilizce**: arayüz 10 dile çevrili ve bu metinler doğrudan
+//! kullanıcıya gösteriliyor. Türkçe bir hata, İspanyolca arayüzde tuhaf
+//! kaçıyordu. Çekirdek tarafında tam çeviri için hata kodları gerekir;
+//! şimdilik nötr dil kullanılıyor.
+
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("ses aygıtı bulunamadı: {0}")]
+    #[error("audio device not found: {0}")]
     DeviceNotFound(String),
-    #[error("ses aygıtı açılamadı ({device}): {source_msg}")]
+    #[error("could not open audio device ({device}): {source_msg}")]
     DeviceOpen { device: String, source_msg: String },
-    #[error("ses akışı hatası: {0}")]
+    #[error("audio stream error: {0}")]
     Stream(String),
-    #[error("aygıtlar listelenemedi: {0}")]
+    #[error("could not list audio devices: {0}")]
     Enumerate(String),
-    #[error("ağ hatası: {0}")]
+    #[error("network error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("protokol hatası: {0}")]
+    #[error("protocol error: {0}")]
     Proto(#[from] relaudio_proto::ProtoError),
-    #[error("bu platformda desteklenmiyor: {0}")]
+    #[error("not supported on this platform: {0}")]
     Unsupported(&'static str),
 }
 

@@ -148,8 +148,13 @@ impl ServerSession {
         // Thread beklenmedik şekilde öldüyse durumu temizle; aksi hâlde arayüz
         // sonsuza dek "Yayında" gösterir ve kullanıcı neden ses gelmediğini
         // anlamaz.
-        if let Some(reason) = guard.as_ref().and_then(|r| r.died()) {
-            *guard = None;
+        if guard.as_ref().and_then(|r| r.died()).is_some() {
+            // take() + shut_down(): sadece bırakmak yetmiyor, Stopper'ın
+            // Drop'u yok. Thread ölmüş olsa bile bayrağı set edip join
+            // ediyoruz ki hiçbir yol açık kaynak bırakmasın.
+            let mut r = guard.take().expect("az önce Some'du");
+            let reason = r.err.lock().unwrap().clone();
+            r.shut_down();
             *self.error.lock().unwrap() =
                 Some(reason.unwrap_or_else(|| "Gönderim beklenmedik şekilde durdu".into()));
         }
@@ -230,8 +235,10 @@ impl PlayerSession {
 
     pub fn fill(&self, out: &mut StatsDto) {
         let mut guard = self.inner.lock().unwrap();
-        if let Some(reason) = guard.as_ref().and_then(|r| r.died()) {
-            *guard = None;
+        if guard.as_ref().and_then(|r| r.died()).is_some() {
+            let mut r = guard.take().expect("az önce Some'du");
+            let reason = r.err.lock().unwrap().clone();
+            r.shut_down();
             *self.error.lock().unwrap() =
                 Some(reason.unwrap_or_else(|| "Alım beklenmedik şekilde durdu".into()));
         }

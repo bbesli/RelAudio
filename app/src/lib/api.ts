@@ -85,6 +85,9 @@ export interface Config {
 export const getConfig = () => invoke<Config>("get_config");
 export const setConfig = (config: Config) => invoke<void>("set_config", { config });
 export const getConfigPath = () => invoke<string>("config_path");
+
+export const setTrayLabels = (show: string, stop_all: string, quit: string) =>
+  invoke<void>("set_tray_labels", { show, stopAll: stop_all, quit });
 export const getLogPath = () => invoke<string>("log_file");
 export const getDeviceName = () => invoke<string>("device_name");
 

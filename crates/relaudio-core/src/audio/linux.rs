@@ -66,24 +66,24 @@ where
     F: FnOnce(&mut Mainloop, &mut Context) -> Result<T>,
 {
     let mut mainloop =
-        Mainloop::new().ok_or_else(|| Error::Enumerate("mainloop kurulamadı".into()))?;
+        Mainloop::new().ok_or_else(|| Error::Enumerate("could not create mainloop".into()))?;
     let mut ctx = Context::new(&mainloop, APP_NAME)
-        .ok_or_else(|| Error::Enumerate("context kurulamadı".into()))?;
+        .ok_or_else(|| Error::Enumerate("could not create context".into()))?;
     ctx.connect(None, ContextFlags::NOFLAGS, None)
-        .map_err(|e| Error::Enumerate(format!("sunucuya bağlanılamadı: {e}")))?;
+        .map_err(|e| Error::Enumerate(format!("could not connect to sound server: {e}")))?;
 
     // Bağlantı hazır olana kadar döndür.
     loop {
         match mainloop.iterate(false) {
             IterateResult::Quit(_) | IterateResult::Err(_) => {
-                return Err(Error::Enumerate("mainloop durdu".into()))
+                return Err(Error::Enumerate("mainloop stopped".into()))
             }
             IterateResult::Success(_) => {}
         }
         match ctx.get_state() {
             ContextState::Ready => break,
             ContextState::Failed | ContextState::Terminated => {
-                return Err(Error::Enumerate("bağlantı reddedildi".into()))
+                return Err(Error::Enumerate("connection refused".into()))
             }
             _ => {}
         }
@@ -102,7 +102,7 @@ where
     while !*done.borrow() {
         match mainloop.iterate(false) {
             IterateResult::Quit(_) | IterateResult::Err(_) => {
-                return Err(Error::Enumerate("listeleme yarıda kesildi".into()))
+                return Err(Error::Enumerate("device listing interrupted".into()))
             }
             IterateResult::Success(_) => {}
         }
@@ -200,7 +200,7 @@ impl Capture for PulseCapture {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         self.s
             .read(buf)
-            .map_err(|e| Error::Stream(format!("okuma başarısız: {e:?}")))?;
+            .map_err(|e| Error::Stream(format!("read failed: {e:?}")))?;
         Ok(buf.len())
     }
 }
@@ -213,7 +213,7 @@ impl Playback for PulsePlayback {
     fn write(&mut self, buf: &[u8]) -> Result<()> {
         self.s
             .write(buf)
-            .map_err(|e| Error::Stream(format!("yazma başarısız: {e}")))
+            .map_err(|e| Error::Stream(format!("write failed: {e}")))
     }
 }
 
@@ -228,14 +228,14 @@ fn resolve(id: &str, kind: DeviceKind) -> Result<String> {
     if id.is_empty() {
         return super::default_device(kind)?
             .map(|d| d.id)
-            .ok_or_else(|| Error::DeviceNotFound(format!("varsayılan {}", kind.as_str())));
+            .ok_or_else(|| Error::DeviceNotFound(format!("default {}", kind.as_str())));
     }
     let devices = list_devices()?;
     let found = devices.iter().find(|d| d.id == id);
     match found {
         Some(d) if d.kind == kind => Ok(id.to_string()),
         Some(d) => Err(Error::DeviceNotFound(format!(
-            "{id} bir '{}' aygıtı, '{}' bekleniyordu",
+            "{id} is a '{}' device, expected '{}'",
             d.kind.as_str(),
             kind.as_str()
         ))),
@@ -245,7 +245,7 @@ fn resolve(id: &str, kind: DeviceKind) -> Result<String> {
 
 pub fn open_capture(id: &str, kind: DeviceKind) -> Result<Box<dyn Capture>> {
     if kind == DeviceKind::Output {
-        return Err(Error::Unsupported("çıkış aygıtından yakalama yapılamaz"));
+        return Err(Error::Unsupported("cannot capture from an output device"));
     }
     let dev = resolve(id, kind)?;
     let s = Simple::new(

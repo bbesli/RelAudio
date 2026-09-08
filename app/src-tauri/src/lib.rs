@@ -159,7 +159,7 @@ fn start_player(state: tauri::State<'_, AppState>, args: StartPlayerArgs) -> Res
         .player
         .start(args.port, &args.device_id, args.buffer_packets);
     if r.is_ok() {
-        announce(&state, true);
+        announce_port(&state, args.port, true);
     }
     r
 }
@@ -171,10 +171,20 @@ fn stop_player(state: tauri::State<'_, AppState>) {
 }
 
 /// Ağa "ses alabiliyorum / alamıyorum" bilgisini yayar.
-fn announce(state: &AppState, listening: bool) {
+pub fn announce(state: &AppState, listening: bool) {
     if let Some(d) = state.discovery.lock().unwrap().as_ref() {
         if let Err(e) = d.announce(listening) {
-            log::warn!("mDNS ilanı güncellenemedi: {e}");
+            log::warn!("could not update mDNS announcement: {e}");
+        }
+    }
+}
+
+/// İlan edilen portu günceller. Oynatıcı başka bir portta başlatıldığında
+/// eşlerin doğru yere göndermesi için şart.
+fn announce_port(state: &AppState, port: u16, listening: bool) {
+    if let Some(d) = state.discovery.lock().unwrap().as_ref() {
+        if let Err(e) = d.set_port(port, listening) {
+            log::warn!("could not update mDNS port: {e}");
         }
     }
 }
@@ -228,6 +238,20 @@ fn mic_hint(output_id: String) -> MicHint {
         paired_input: audio::paired_virtual_input(&name, &devices),
         any_virtual: audio::has_virtual_output(&devices),
     }
+}
+
+/// Tepsi menüsünün etiketlerini arayüzün diliyle günceller.
+///
+/// Tepsi Rust tarafında kuruluyor ve çeviriler frontend'de; sabit Türkçe
+/// etiketler 10 dilli bir arayüzle çelişiyordu.
+#[tauri::command]
+fn set_tray_labels(
+    app: tauri::AppHandle,
+    show: String,
+    stop_all: String,
+    quit: String,
+) -> Result<(), String> {
+    tray::update_labels(&app, &show, &stop_all, &quit).map_err(|e| e.to_string())
 }
 
 /// Log dosyasının yolu — sorun bildirirken kullanıcıya göstermek için.
@@ -426,6 +450,7 @@ pub fn run() {
             mic_hint,
             get_config,
             set_config,
+            set_tray_labels,
             config_path,
             start_server,
             stop_server,

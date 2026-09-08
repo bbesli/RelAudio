@@ -1,10 +1,18 @@
 <script lang="ts">
   import type { Device, DeviceKind } from "./api";
 
+  /**
+   * Aygıt seçici.
+   *
+   * Değer tek yönlü gelir, değişiklik `onselect` ile bildirilir. İki yönlü
+   * bağlama kullanılmıyor çünkü seçimin `persist()` üzerinden geçmesi gerek:
+   * ayar diske yazılmalı ve çalışan akış yeniden kurulmalı.
+   */
   let {
     devices,
     kind,
-    value = $bindable(),
+    value,
+    onselect,
     label,
     hint = "",
     emptyText = "—",
@@ -13,6 +21,7 @@
     devices: Device[];
     kind: DeviceKind;
     value: string;
+    onselect: (id: string) => void;
     label: string;
     hint?: string;
     emptyText?: string;
@@ -21,18 +30,19 @@
 
   const options = $derived(devices.filter((d) => d.kind === kind));
 
-  // Seçim boşsa ya da listede yoksa varsayılana düş.
+  // Seçim boşsa ya da artık listede yoksa varsayılana düş — ama yalnızca
+  // gerçekten değişiyorsa bildir, yoksa sonsuz döngü olur.
   $effect(() => {
     if (!options.length) return;
-    if (!value || !options.some((d) => d.id === value)) {
-      value = (options.find((d) => d.is_default) ?? options[0]).id;
-    }
+    if (value && options.some((d) => d.id === value)) return;
+    const fallback = (options.find((d) => d.is_default) ?? options[0]).id;
+    if (fallback !== value) onselect(fallback);
   });
 </script>
 
 <label class="field">
   <span class="lbl">{label}</span>
-  <select bind:value>
+  <select {value} onchange={(e) => onselect(e.currentTarget.value)}>
     {#each options as d (d.id)}
       <option value={d.id}>{d.name}{d.is_default ? `  ·  ${defaultText}` : ""}</option>
     {/each}

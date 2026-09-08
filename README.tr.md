@@ -21,8 +21,11 @@ mikrofon, iki yönde de, düşük gecikmeyle.
 Cihazlar ağda birbirini otomatik buluyor — IP yazmak yok. Uygulama sistem
 tepsisinde yaşıyor, pencereyi kapatsan da yayın sürüyor. Arayüz 10 dilde.
 
-**Ölçülen gecikme: 12–21 ms** (kablolu ağ, aygıtın tampon ayarına göre).
-Ölçümler [docs/10-riskler.md](docs/10-riskler.md) içinde.
+**Gecikme.** Yazılım yolu, Linux'ta yerel bir döngü testinde ses grafiği
+kuantumuna göre **12–21 ms** ölçüldü ([docs/10-riskler.md](docs/10-riskler.md)).
+İki makine arasında, varsayılan ayarlarla uçtan uca kabaca **60–90 ms** bekle —
+jitter buffer varsayılanda 40 ms, her makinenin aygıt tamponu da 20 ms civarı
+ekliyor. Daha azı gerekiyorsa tamponu ve aygıt periyodunu düşür.
 
 ---
 
@@ -34,7 +37,7 @@ tepsisinde yaşıyor, pencereyi kapatsan da yayın sürüyor. Arayüz 10 dilde.
 
 ```bash
 # Arch / CachyOS
-sudo pacman -S --needed rustup nodejs npm libpulse webkit2gtk-4.1 libayatana-appindicator
+sudo pacman -S --needed base-devel rustup nodejs npm libpulse webkit2gtk-4.1 libayatana-appindicator
 rustup default stable
 
 # Debian / Ubuntu
@@ -42,7 +45,7 @@ sudo apt install build-essential curl libpulse-dev libwebkit2gtk-4.1-dev \
                  libayatana-appindicator3-dev librsvg2-dev nodejs npm
 
 # Fedora
-sudo dnf install pulseaudio-libs-devel webkit2gtk4.1-devel \
+sudo dnf install @development-tools pulseaudio-libs-devel webkit2gtk4.1-devel \
                  libappindicator-gtk3-devel librsvg2-devel nodejs
 ```
 
@@ -159,7 +162,7 @@ mikrofon ucundan çıkar.
 | Belirti | Sebep ve çözüm |
 |---|---|
 | **Paket sayacı 0'da duruyor** | Yanlış hedef adres ya da güvenlik duvarı. Oynatıcı sekmesi bu makinenin adresini gösteriyor; gönderenin oraya baktığından emin ol. |
-| **Paket geliyor ama ses yok** | Yanlış çıkış aygıtı. Sağ panelden değiştir, akış kendiliğinden yeniden kurulur. Çıkışı tek başına sınamak için `relaudio tone`. |
+| **Paket geliyor ama ses yok** | Yanlış çıkış aygıtı. İstatistikler panelindeki **Çıkış** satırı akışın gerçekte açtığı aygıtı gösterir — açılır listede seçili olanı değil. Sağ panelden değiştir, akış kendiliğinden yeniden kurulur. Çıkışı tek başına sınamak için `relaudio-cli tone`. |
 | **Kendi sesini duyuyorsun** | Bir şey kabloyu dinliyor. Yukarıdaki iki nota bak. |
 | **Uygulama açılmıyor, hiçbir şey olmuyor** | Zaten çalışıyordur — sistem tepsisine bak. RelAudio tek örneğe izin veriyor. |
 | **GNOME'da tepsi simgesi yok** | GNOME'da varsayılan tepsi yok. *AppIndicator and KStatusNotifierItem Support* eklentisini kur. Tepsi yoksa RelAudio "tepsiye küçült"ü kapatıyor ki uygulama erişilemez hâle gelmesin. |
@@ -171,14 +174,16 @@ mikrofon ucundan çıkar.
 Uygulamayla birlikte bir komut satırı aracı da derleniyor:
 
 ```bash
-relaudio devices                  # aygıtları id'leriyle listele
-relaudio tone                     # test tonu çal — çıkışı sınar, ağ gerekmez
-relaudio level --mic --device ID  # canlı giriş seviyesi ölçer
-relaudio send 192.168.1.10        # arayüzsüz gönder
-relaudio recv                     # arayüzsüz al
+relaudio-cli devices                  # aygıtları id'leriyle listele
+relaudio-cli tone                     # test tonu çal — çıkışı sınar, ağ gerekmez
+relaudio-cli level --mic --device ID  # canlı giriş seviyesi ölçer
+relaudio-cli send 192.168.1.10        # arayüzsüz gönder
+relaudio-cli recv                     # arayüzsüz al
 ```
 
-`relaudio level` zincirin neresinin koptuğunu bulmanın en hızlı yolu: kablonun
+`relaudio` uygulamayı açar; `relaudio-cli` teşhis aracıdır.
+
+`relaudio-cli level` zincirin neresinin koptuğunu bulmanın en hızlı yolu: kablonun
 mikrofon ucuna doğrult ve sesin gerçekten ulaşıp ulaşmadığını gör.
 
 ---
@@ -220,6 +225,7 @@ Karar kayıtları: [docs/adr/](docs/adr/).
 ```bash
 cargo test                                    # çekirdek testleri
 cd app/src-tauri && cargo test                # oturum katmanı testleri
+rustup target add x86_64-pc-windows-msvc      # bir kez
 cargo check --target x86_64-pc-windows-msvc   # Windows kodunu Linux'ta doğrula
 node scripts/check-i18n.mjs                   # çeviri bütünlüğü
 ```

@@ -22,9 +22,11 @@ Devices find each other automatically on the LAN — no IP addresses to type.
 The app lives in the system tray and keeps streaming when you close the window.
 Interface available in 10 languages.
 
-**Measured latency: 12–21 ms** end to end on a wired LAN, depending on your
-audio device's buffer settings. See [docs/10-riskler.md](docs/10-riskler.md)
-for the measurements.
+**Latency.** The software path measured **12–21 ms** in a local loopback test on
+Linux, depending on the audio graph quantum ([docs/10-riskler.md](docs/10-riskler.md)).
+End to end between two machines with default settings, expect roughly **60–90 ms** —
+the jitter buffer contributes 40 ms by default and each machine's device buffer
+20 ms or so. Lower the buffer and the device period if you need less.
 
 ---
 
@@ -36,7 +38,7 @@ Needs `rustup`, Node.js, and PulseAudio/PipeWire development headers.
 
 ```bash
 # Arch / CachyOS
-sudo pacman -S --needed rustup nodejs npm libpulse webkit2gtk-4.1 libayatana-appindicator
+sudo pacman -S --needed base-devel rustup nodejs npm libpulse webkit2gtk-4.1 libayatana-appindicator
 rustup default stable
 
 # Debian / Ubuntu
@@ -44,7 +46,7 @@ sudo apt install build-essential curl libpulse-dev libwebkit2gtk-4.1-dev \
                  libayatana-appindicator3-dev librsvg2-dev nodejs npm
 
 # Fedora
-sudo dnf install pulseaudio-libs-devel webkit2gtk4.1-devel \
+sudo dnf install @development-tools pulseaudio-libs-devel webkit2gtk4.1-devel \
                  libappindicator-gtk3-devel librsvg2-devel nodejs
 ```
 
@@ -166,7 +168,7 @@ to the speaker end comes out of the microphone end.
 | Symptom | Cause and fix |
 |---|---|
 | **Packets counter stays at 0** | Wrong target address, or a firewall. The Player tab shows this machine's address — make sure the sender is pointed at it. |
-| **Packets arrive but no sound** | Wrong output device. Change it in the right-hand panel; the stream restarts automatically. Use `relaudio tone` to test the output on its own. |
+| **Packets arrive but no sound** | Wrong output device. The Statistics panel shows which device the stream actually opened — not what the dropdown says. Change it in the right-hand panel; the stream restarts automatically. `relaudio-cli tone` tests the output on its own. |
 | **You hear your own voice** | Something is monitoring the cable. See the two notes above. |
 | **App won't open, nothing happens** | It's already running — look in the system tray. RelAudio allows only one instance. |
 | **No tray icon on GNOME** | GNOME has no tray by default. Install the *AppIndicator and KStatusNotifierItem Support* extension. Without a tray, RelAudio disables "minimize to tray" so the app can't become unreachable. |
@@ -178,14 +180,18 @@ to the speaker end comes out of the microphone end.
 A command-line tool is built alongside the app:
 
 ```bash
-relaudio devices                  # list devices with their IDs
-relaudio tone                     # play a test tone — checks output, no network
-relaudio level --mic --device ID  # live input level meter
-relaudio send 192.168.1.10        # stream without the GUI
-relaudio recv                     # receive without the GUI
+relaudio-cli devices                  # list devices with their IDs
+relaudio-cli tone                     # play a test tone — checks output, no network
+relaudio-cli level --mic --device ID  # live input level meter
+relaudio-cli send 192.168.1.10        # stream without the GUI
+relaudio-cli recv                     # receive without the GUI
 ```
 
-`relaudio level` is the fastest way to find which link in the chain is broken:
+`relaudio` launches the app; `relaudio-cli` is the diagnostic tool.
+On Windows both are under `app\src-tauri\target\release\` and
+`target\release\` respectively.
+
+`relaudio-cli level` is the fastest way to find which link in the chain is broken:
 point it at the cable's microphone end and see whether audio actually arrives.
 
 ---
@@ -227,6 +233,7 @@ Decision records: [docs/adr/](docs/adr/).
 ```bash
 cargo test                                    # core tests
 cd app/src-tauri && cargo test                # session layer tests
+rustup target add x86_64-pc-windows-msvc      # once
 cargo check --target x86_64-pc-windows-msvc   # type-check Windows code on Linux
 node scripts/check-i18n.mjs                   # translation completeness
 ```
