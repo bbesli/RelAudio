@@ -29,6 +29,9 @@ export const LOCALES: Locale[] = [
 type Dict = Record<string, string>;
 
 const tr: Dict = {
+  "player.micStep1": "RelAudio sesi {cable} kablosuna yazıyor.",
+  "player.micStep2": "Discord, Zoom veya Ses Kaydedici'yi aç ve mikrofon olarak {device} seç.",
+  "player.micNotHere": "Bu aygıtı RelAudio'nun listesinde arama — o bir mikrofon, buradaki liste hoparlörleri gösteriyor. Diğer uygulamaların mikrofon listesinde çıkacak.",
   "settings.coffeeFailed": "Tarayıcı açılamadı. Adresi elle açabilirsin:",
   "player.dontChangeDefault": "Windows'un sistem çıkışını bu kabloya çevirme — sadece RelAudio ona yazmalı. Çevirirsen bilgisayarının tüm sesi de mikrofona karışır.",
   "nav.server": "Sunucu",
@@ -71,7 +74,6 @@ const tr: Dict = {
   "player.level": "Gelen ses seviyesi",
   "player.levelWaiting": "ses bekleniyor",
   "player.micReady": "Sanal mikrofon hazır",
-  "player.micReadyBody": "Sesi sanal bir kabloya yazıyorsun. Diğer uygulamalarda mikrofon olarak {device} seç — karşı cihazın mikrofonu oradan gelecek.",
   "player.noCable": "Sanal ses kablosu bulunamadı",
   "player.noCableBody": "Bu mod bir sanal ses kablosu gerektiriyor: bir ucu hoparlör, öbür ucu mikrofon olan bir sürücü. RelAudio hoparlör ucuna yazar, uygulamalar mikrofon ucundan okur. VB-CABLE ücretsiz ve bu işi görüyor. Sadece dinlemek istiyorsan bu moda gerek yok.",
   "player.noPackets": "Hiç paket gelmiyor. Gönderen cihazdaki hedef adres {address} mi? Değilse güvenlik duvarı bu portu engelliyor olabilir.",
@@ -127,6 +129,9 @@ const tr: Dict = {
 };
 
 const en: Dict = {
+  "player.micStep1": "RelAudio is writing audio into {cable}.",
+  "player.micStep2": "Open Discord, Zoom or Sound Recorder and select {device} as the microphone.",
+  "player.micNotHere": "Don't look for that device in RelAudio's list — it's a microphone, and this list shows speakers. It appears in the other app's microphone list.",
   "settings.coffeeFailed": "Couldn't open your browser. You can open the address manually:",
   "player.dontChangeDefault": "Don't set your system's default output to this cable — only RelAudio should write to it. Otherwise everything your computer plays also goes into the microphone.",
   "nav.server": "Server",
@@ -169,7 +174,6 @@ const en: Dict = {
   "player.level": "Incoming level",
   "player.levelWaiting": "waiting for audio",
   "player.micReady": "Virtual microphone ready",
-  "player.micReadyBody": "You're writing audio to a virtual cable. In other apps, select {device} as the microphone — the remote device's mic will come through there.",
   "player.noCable": "No virtual audio cable found",
   "player.noCableBody": "This mode needs a virtual audio cable: a driver with a speaker end and a microphone end. RelAudio writes to the speaker end, apps read from the microphone end. VB-CABLE is free and does the job. You don't need this mode if you only want to listen.",
   "player.noPackets": "No packets arriving. Is the target address on the sending device {address}? If it is, a firewall may be blocking this port.",
@@ -225,6 +229,9 @@ const en: Dict = {
 };
 
 const es: Dict = {
+  "player.micStep1": "RelAudio está escribiendo el audio en {cable}.",
+  "player.micStep2": "Abre Discord, Zoom o la Grabadora de sonido y elige {device} como micrófono.",
+  "player.micNotHere": "No busques ese dispositivo en la lista de RelAudio: es un micrófono y esta lista muestra altavoces. Aparece en la lista de micrófonos de la otra aplicación.",
   "settings.coffeeFailed": "No se pudo abrir el navegador. Puedes abrir la dirección manualmente:",
   "player.dontChangeDefault": "No pongas la salida predeterminada del sistema en este cable: solo RelAudio debe escribir en él. Si lo haces, todo el sonido del equipo entrará también en el micrófono.",
   "nav.server": "Servidor", "nav.player": "Reproductor", "nav.settings": "Ajustes",
@@ -254,7 +261,6 @@ const es: Dict = {
   "player.start": "Empezar a escuchar", "player.stop": "Dejar de escuchar",
   "player.level": "Nivel entrante", "player.levelWaiting": "esperando audio",
   "player.micReady": "Micrófono virtual listo",
-  "player.micReadyBody": "Estás escribiendo audio en un cable virtual. En otras aplicaciones elige {device} como micrófono: por ahí llegará el micrófono del otro dispositivo.",
   "player.noCable": "No se encontró ningún cable de audio virtual",
   "player.noCableBody": "Este modo necesita un cable de audio virtual: un controlador con un extremo altavoz y otro micrófono. RelAudio escribe en el extremo altavoz y las aplicaciones leen del extremo micrófono. VB-CABLE es gratuito y sirve. No necesitas este modo si solo quieres escuchar.",
   "player.noPackets": "No llega ningún paquete. ¿La dirección de destino en el dispositivo emisor es {address}? Si lo es, puede que un cortafuegos bloquee este puerto.",
@@ -290,6 +296,9 @@ const es: Dict = {
 };
 
 const de: Dict = {
+  "player.micStep1": "RelAudio schreibt den Ton in {cable}.",
+  "player.micStep2": "Öffne Discord, Zoom oder den Sprachrekorder und wähle {device} als Mikrofon.",
+  "player.micNotHere": "Suche dieses Gerät nicht in der Liste von RelAudio — es ist ein Mikrofon, und diese Liste zeigt Lautsprecher. Es erscheint in der Mikrofonliste der anderen App.",
   "settings.coffeeFailed": "Der Browser konnte nicht geöffnet werden. Du kannst die Adresse manuell öffnen:",
   "player.dontChangeDefault": "Stelle die Standardausgabe des Systems nicht auf dieses Kabel — nur RelAudio soll darauf schreiben. Sonst landet auch der gesamte Computerton im Mikrofon.",
   "nav.server": "Server", "nav.player": "Player", "nav.settings": "Einstellungen",
@@ -317,7 +326,6 @@ const de: Dict = {
   "player.start": "Empfang starten", "player.stop": "Empfang stoppen",
   "player.level": "Eingangspegel", "player.levelWaiting": "warte auf Ton",
   "player.micReady": "Virtuelles Mikrofon bereit",
-  "player.micReadyBody": "Du schreibst Ton in ein virtuelles Kabel. Wähle in anderen Apps {device} als Mikrofon — darüber kommt das Mikrofon des anderen Geräts an.",
   "player.noCable": "Kein virtuelles Audiokabel gefunden",
   "player.noCableBody": "Dieser Modus braucht ein virtuelles Audiokabel: einen Treiber mit einem Lautsprecher- und einem Mikrofonende. RelAudio schreibt ins Lautsprecherende, Apps lesen vom Mikrofonende. VB-CABLE ist kostenlos und reicht dafür. Zum reinen Zuhören brauchst du diesen Modus nicht.",
   "player.noPackets": "Es kommen keine Pakete an. Ist die Zieladresse auf dem sendenden Gerät {address}? Falls ja, blockiert womöglich eine Firewall diesen Port.",
@@ -353,6 +361,9 @@ const de: Dict = {
 };
 
 const fr: Dict = {
+  "player.micStep1": "RelAudio écrit le son dans {cable}.",
+  "player.micStep2": "Ouvrez Discord, Zoom ou l'Enregistreur vocal et choisissez {device} comme microphone.",
+  "player.micNotHere": "Ne cherchez pas cet appareil dans la liste de RelAudio : c'est un microphone et cette liste montre les haut-parleurs. Il apparaît dans la liste des microphones de l'autre application.",
   "settings.coffeeFailed": "Impossible d'ouvrir le navigateur. Vous pouvez ouvrir l'adresse manuellement :",
   "player.dontChangeDefault": "Ne définissez pas la sortie par défaut du système sur ce câble : seul RelAudio doit y écrire. Sinon tout le son de l'ordinateur passe aussi dans le microphone.",
   "nav.server": "Serveur", "nav.player": "Lecteur", "nav.settings": "Paramètres",
@@ -380,7 +391,6 @@ const fr: Dict = {
   "player.start": "Commencer à écouter", "player.stop": "Arrêter l'écoute",
   "player.level": "Niveau entrant", "player.levelWaiting": "en attente de son",
   "player.micReady": "Microphone virtuel prêt",
-  "player.micReadyBody": "Vous écrivez le son dans un câble virtuel. Dans les autres applications, choisissez {device} comme microphone — le micro de l'autre appareil arrivera par là.",
   "player.noCable": "Aucun câble audio virtuel trouvé",
   "player.noCableBody": "Ce mode nécessite un câble audio virtuel : un pilote avec une extrémité haut-parleur et une extrémité microphone. RelAudio écrit sur l'extrémité haut-parleur, les applications lisent l'extrémité microphone. VB-CABLE est gratuit et fait l'affaire. Ce mode est inutile si vous voulez seulement écouter.",
   "player.noPackets": "Aucun paquet ne parvient. L'adresse cible sur l'appareil émetteur est-elle {address} ? Si oui, un pare-feu bloque peut-être ce port.",
@@ -416,6 +426,9 @@ const fr: Dict = {
 };
 
 const pt: Dict = {
+  "player.micStep1": "O RelAudio está a escrever o áudio em {cable}.",
+  "player.micStep2": "Abra o Discord, o Zoom ou o Gravador de Som e escolha {device} como microfone.",
+  "player.micNotHere": "Não procure esse dispositivo na lista do RelAudio — é um microfone e esta lista mostra colunas. Aparece na lista de microfones da outra aplicação.",
   "settings.coffeeFailed": "Não foi possível abrir o navegador. Pode abrir o endereço manualmente:",
   "player.dontChangeDefault": "Não defina a saída predefinida do sistema para este cabo — só o RelAudio deve escrever nele. Caso contrário todo o som do computador entra também no microfone.",
   "nav.server": "Servidor", "nav.player": "Reprodutor", "nav.settings": "Definições",
@@ -443,7 +456,6 @@ const pt: Dict = {
   "player.start": "Começar a ouvir", "player.stop": "Parar de ouvir",
   "player.level": "Nível recebido", "player.levelWaiting": "à espera de áudio",
   "player.micReady": "Microfone virtual pronto",
-  "player.micReadyBody": "Está a escrever áudio num cabo virtual. Noutras aplicações escolha {device} como microfone — é por aí que chega o microfone do outro dispositivo.",
   "player.noCable": "Nenhum cabo de áudio virtual encontrado",
   "player.noCableBody": "Este modo precisa de um cabo de áudio virtual: um controlador com uma ponta de coluna e outra de microfone. O RelAudio escreve na ponta de coluna e as aplicações leem da ponta de microfone. O VB-CABLE é gratuito e serve. Não precisa deste modo se só quiser ouvir.",
   "player.noPackets": "Não chega nenhum pacote. O endereço de destino no dispositivo emissor é {address}? Se for, pode haver uma firewall a bloquear esta porta.",
@@ -479,6 +491,9 @@ const pt: Dict = {
 };
 
 const ru: Dict = {
+  "player.micStep1": "RelAudio пишет звук в {cable}.",
+  "player.micStep2": "Откройте Discord, Zoom или «Звукозапись» и выберите {device} как микрофон.",
+  "player.micNotHere": "Не ищите это устройство в списке RelAudio — это микрофон, а здесь показаны динамики. Оно появится в списке микрофонов другого приложения.",
   "settings.coffeeFailed": "Не удалось открыть браузер. Можно открыть адрес вручную:",
   "player.dontChangeDefault": "Не назначайте этот кабель устройством вывода по умолчанию — писать в него должен только RelAudio. Иначе весь звук компьютера тоже попадёт в микрофон.",
   "nav.server": "Сервер", "nav.player": "Плеер", "nav.settings": "Настройки",
@@ -506,7 +521,6 @@ const ru: Dict = {
   "player.start": "Начать приём", "player.stop": "Остановить приём",
   "player.level": "Входящий уровень", "player.levelWaiting": "ожидание звука",
   "player.micReady": "Виртуальный микрофон готов",
-  "player.micReadyBody": "Вы пишете звук в виртуальный кабель. В других приложениях выберите {device} как микрофон — оттуда придёт микрофон другого устройства.",
   "player.noCable": "Виртуальный аудиокабель не найден",
   "player.noCableBody": "Для этого режима нужен виртуальный аудиокабель: драйвер с концом-динамиком и концом-микрофоном. RelAudio пишет в конец-динамик, приложения читают из конца-микрофона. VB-CABLE бесплатен и подходит. Если вы только слушаете, этот режим не нужен.",
   "player.noPackets": "Пакеты не приходят. Указан ли на передающем устройстве адрес {address}? Если да, порт может блокировать брандмауэр.",
@@ -542,6 +556,9 @@ const ru: Dict = {
 };
 
 const zh: Dict = {
+  "player.micStep1": "RelAudio 正在把声音写入 {cable}。",
+  "player.micStep2": "打开 Discord、Zoom 或录音机，把 {device} 选为麦克风。",
+  "player.micNotHere": "不要在 RelAudio 的列表里找这个设备——它是麦克风，而这里显示的是扬声器。它会出现在其他应用的麦克风列表中。",
   "settings.coffeeFailed": "无法打开浏览器。你可以手动打开这个地址：",
   "player.dontChangeDefault": "不要把系统默认输出设备设为这个虚拟声卡——只应由 RelAudio 写入。否则电脑播放的所有声音也会进入麦克风。",
   "nav.server": "发送端", "nav.player": "接收端", "nav.settings": "设置",
@@ -566,7 +583,6 @@ const zh: Dict = {
   "player.start": "开始接收", "player.stop": "停止接收",
   "player.level": "输入电平", "player.levelWaiting": "等待声音",
   "player.micReady": "虚拟麦克风已就绪",
-  "player.micReadyBody": "你正在把声音写入虚拟声卡。在其他应用中选择 {device} 作为麦克风，对方设备的麦克风就会从那里传来。",
   "player.noCable": "未找到虚拟声卡",
   "player.noCableBody": "此模式需要虚拟声卡：一端是扬声器、另一端是麦克风的驱动。RelAudio 写入扬声器端，应用从麦克风端读取。VB-CABLE 免费且可用。若只想收听则不需要此模式。",
   "player.noPackets": "没有收到数据包。发送设备上的目标地址是 {address} 吗？如果是，可能是防火墙拦截了该端口。",
@@ -597,6 +613,9 @@ const zh: Dict = {
 };
 
 const hi: Dict = {
+  "player.micStep1": "RelAudio आवाज़ {cable} में लिख रहा है।",
+  "player.micStep2": "Discord, Zoom या साउंड रिकॉर्डर खोलें और माइक्रोफ़ोन के रूप में {device} चुनें।",
+  "player.micNotHere": "यह डिवाइस RelAudio की सूची में न ढूँढें — वह माइक्रोफ़ोन है, और यह सूची स्पीकर दिखाती है। वह दूसरे ऐप की माइक्रोफ़ोन सूची में दिखेगा।",
   "settings.coffeeFailed": "ब्राउज़र नहीं खुल सका। आप पता खुद खोल सकते हैं:",
   "player.dontChangeDefault": "सिस्टम का डिफ़ॉल्ट आउटपुट इस केबल पर सेट न करें — इसमें सिर्फ़ RelAudio को लिखना चाहिए। वरना कंप्यूटर की सारी आवाज़ भी माइक्रोफ़ोन में चली जाएगी।",
   "nav.server": "सर्वर", "nav.player": "प्लेयर", "nav.settings": "सेटिंग्स",
@@ -621,7 +640,6 @@ const hi: Dict = {
   "player.start": "सुनना शुरू करें", "player.stop": "सुनना बंद करें",
   "player.level": "आने वाला स्तर", "player.levelWaiting": "आवाज़ का इंतज़ार",
   "player.micReady": "वर्चुअल माइक्रोफ़ोन तैयार",
-  "player.micReadyBody": "आप आवाज़ को वर्चुअल केबल में लिख रहे हैं। दूसरे ऐप में माइक्रोफ़ोन के रूप में {device} चुनें — दूसरे डिवाइस का माइक वहीं से आएगा।",
   "player.noCable": "कोई वर्चुअल ऑडियो केबल नहीं मिला",
   "player.noCableBody": "इस मोड के लिए वर्चुअल ऑडियो केबल चाहिए: एक सिरा स्पीकर और दूसरा माइक्रोफ़ोन वाला ड्राइवर। RelAudio स्पीकर सिरे में लिखता है, ऐप माइक्रोफ़ोन सिरे से पढ़ते हैं। VB-CABLE मुफ़्त है और यह काम करता है। सिर्फ़ सुनना है तो इस मोड की ज़रूरत नहीं।",
   "player.noPackets": "कोई पैकेट नहीं आ रहा। भेजने वाले डिवाइस पर लक्ष्य पता {address} है? अगर है, तो फ़ायरवॉल इस पोर्ट को रोक रहा हो सकता है।",
@@ -652,6 +670,9 @@ const hi: Dict = {
 };
 
 const ar: Dict = {
+  "player.micStep1": "يكتب RelAudio الصوت في {cable}.",
+  "player.micStep2": "افتح Discord أو Zoom أو مسجّل الصوت واختر {device} كميكروفون.",
+  "player.micNotHere": "لا تبحث عن هذا الجهاز في قائمة RelAudio — إنه ميكروفون، وهذه القائمة تعرض السماعات. سيظهر في قائمة ميكروفونات التطبيق الآخر.",
   "settings.coffeeFailed": "تعذّر فتح المتصفح. يمكنك فتح العنوان يدويًا:",
   "player.dontChangeDefault": "لا تجعل مخرج النظام الافتراضي هذا الكابل — يجب أن يكتب فيه RelAudio وحده. وإلا فسيدخل كل صوت الحاسوب إلى الميكروفون أيضًا.",
   "nav.server": "الإرسال", "nav.player": "الاستقبال", "nav.settings": "الإعدادات",
@@ -676,7 +697,6 @@ const ar: Dict = {
   "player.start": "بدء الاستقبال", "player.stop": "إيقاف الاستقبال",
   "player.level": "مستوى الوارد", "player.levelWaiting": "في انتظار الصوت",
   "player.micReady": "الميكروفون الافتراضي جاهز",
-  "player.micReadyBody": "أنت تكتب الصوت في كابل افتراضي. في التطبيقات الأخرى اختر {device} كميكروفون، ومن هناك سيصل ميكروفون الجهاز الآخر.",
   "player.noCable": "لم يُعثر على كابل صوتي افتراضي",
   "player.noCableBody": "يحتاج هذا الوضع إلى كابل صوتي افتراضي: مشغّل له طرف سماعة وطرف ميكروفون. يكتب RelAudio في طرف السماعة وتقرأ التطبيقات من طرف الميكروفون. VB-CABLE مجاني ويفي بالغرض. لا تحتاج هذا الوضع إن كنت تريد الاستماع فقط.",
   "player.noPackets": "لا تصل أي حزم. هل العنوان الهدف على الجهاز المُرسِل هو {address}؟ إن كان كذلك فقد يحجب جدار حماية هذا المنفذ.",

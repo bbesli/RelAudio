@@ -309,7 +309,12 @@
         {#if cfg.player_mode === "mic" && micHint?.paired_input}
           <div class="mic-ok">
             <strong>{t("player.micReady")}</strong>
-            <p>{t("player.micReadyBody", { device: micHint.paired_input })}</p>
+            <ol class="steps">
+              <li class="done">{t("player.micStep1", {
+                cable: devices.find((d) => d.id === cfg.player_device)?.name ?? "—" })}</li>
+              <li><strong class="pick">{t("player.micStep2", { device: micHint.paired_input })}</strong></li>
+            </ol>
+            <p class="aside-note">{t("player.micNotHere")}</p>
             <p class="warn-line">{t("player.dontChangeDefault")}</p>
           </div>
         {:else if cfg.player_mode === "mic" && micHint && !micHint.any_virtual}
@@ -521,6 +526,11 @@
   .mic-info { border: 1px solid var(--line); background: var(--panel-2); }
   .mic-ok p, .mic-info p { margin: 5px 0 0; color: var(--dim); line-height: 1.5; }
   .warn-line { color: var(--warn) !important; }
+  .steps { margin: 8px 0 0; padding-inline-start: 20px; }
+  .steps li { margin: 5px 0; line-height: 1.5; color: var(--text); }
+  .steps li.done { color: var(--dim); }
+  .steps .pick { font-weight: 600; }
+  .aside-note { font-size: 11px; }
 
   .peers { margin-bottom: 18px; }
   .peers ul { list-style: none; margin: 6px 0 0; padding: 0; }

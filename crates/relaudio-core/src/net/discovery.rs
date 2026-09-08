@@ -34,6 +34,8 @@ pub struct Discovery {
     instance: String,
     port: u16,
     self_name: String,
+    /// Bu sürece özgü kimlik. Kendimizi eş listesinden ayıklamak için.
+    instance_id: String,
 }
 
 fn os_name() -> &'static str {
@@ -64,6 +66,20 @@ impl Discovery {
         // Örnek adı ağda tekil olmalı; ad + os yeterince ayırt edici.
         let instance = format!("{name}-{}", os_name());
 
+        // Örnek adına göre kendini ayıklamak yetmiyor: mDNS aynı ad ağda
+        // zaten varsa (örneğin uygulama hızlı yeniden başlatıldığında eski
+        // kayıt hâlâ duruyorsa) adı değiştirerek kaydediyor. O zaman cihaz
+        // kendini eş olarak listeliyordu. Sürece özgü bir kimlik TXT'ye
+        // yazılıp ona göre süzülüyor.
+        let instance_id = format!(
+            "{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
+
         let peers: Arc<Mutex<HashMap<String, Peer>>> = Arc::new(Mutex::new(HashMap::new()));
 
         let receiver = daemon
@@ -72,6 +88,7 @@ impl Discovery {
 
         let map = peers.clone();
         let own = instance.clone();
+        let own_iid = instance_id.clone();
         std::thread::Builder::new()
             .name("relaudio-mdns".into())
             .spawn(move || {
@@ -84,8 +101,12 @@ impl Discovery {
                                 .next()
                                 .unwrap_or("")
                                 .to_string();
-                            // Kendimizi listeleme.
-                            if inst == own {
+                            // Kendimizi listeleme — önce kimliğe, sonra ada bak.
+                            let peer_iid = info
+                                .get_property_val_str("iid")
+                                .unwrap_or_default()
+                                .to_string();
+                            if peer_iid == own_iid || inst == own {
                                 continue;
                             }
                             // IPv4 tercih et. mDNS hem IPv4 hem IPv6 döndürüyor;
@@ -136,6 +157,7 @@ impl Discovery {
             instance,
             port,
             self_name: name,
+            instance_id,
         };
         d.announce(false)?;
         Ok(d)
@@ -149,6 +171,7 @@ impl Discovery {
             ("name".to_string(), self.self_name.clone()),
             ("os".to_string(), os_name().to_string()),
             ("listening".to_string(), if listening { "1" } else { "0" }.to_string()),
+            ("iid".to_string(), self.instance_id.clone()),
         ]
         .into_iter()
         .collect();
