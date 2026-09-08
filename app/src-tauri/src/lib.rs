@@ -57,6 +57,9 @@ pub struct DeviceDto {
     pub name: String,
     pub kind: String,
     pub is_default: bool,
+    /// Sanal ses kablosunun bir ucu mu? Arayüz "mikrofon olarak kullan"
+    /// modunda listeyi buna göre süzüyor.
+    pub virtual_cable: bool,
 }
 
 #[derive(Serialize, Default)]
@@ -102,6 +105,7 @@ fn list_devices() -> Result<Vec<DeviceDto>, String> {
         .map(|v| {
             v.into_iter()
                 .map(|d| DeviceDto {
+                    virtual_cable: audio::looks_virtual(&d.name),
                     id: d.id,
                     name: d.name,
                     kind: d.kind.as_str().to_string(),

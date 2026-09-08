@@ -119,7 +119,8 @@ fn token_score(name: &str, against: &str) -> u32 {
         .sum()
 }
 
-fn looks_virtual(name: &str) -> bool {
+/// Ad bir sanal ses kablosuna mı işaret ediyor?
+pub fn looks_virtual(name: &str) -> bool {
     let n = name.to_lowercase();
     VIRTUAL_TOKENS.iter().any(|(t, _)| n.contains(t))
 }

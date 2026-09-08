@@ -7,6 +7,7 @@ export interface Device {
   name: string;
   kind: DeviceKind;
   is_default: boolean;
+  virtual_cable: boolean;
 }
 
 export interface Stats {

@@ -31,6 +31,8 @@
   let port = $state(59101);
   let outputId = $state("");
   let bufferPackets = $state(8);
+  /// "listen" = hoparlörden dinle, "mic" = sanal kabloya yazıp mikrofon yap
+  let playerMode = $state<"listen" | "mic">("listen");
 
   // Ayarlar
   let minimizeToTray = $state(true);
@@ -60,6 +62,18 @@
     refresh();
     const id = setInterval(tick, 500);
     return () => clearInterval(id);
+  });
+
+  const outputChoices = $derived(
+    devices.filter((d) => d.kind === "output" && (playerMode === "listen" || d.virtual_cable))
+  );
+
+  // Mod değişince seçim o modda anlamsız kaldıysa uygun olana geç.
+  $effect(() => {
+    const ok = outputChoices.some((d) => d.id === outputId);
+    if (!ok && outputChoices.length) {
+      outputId = (outputChoices.find((d) => d.is_default) ?? outputChoices[0]).id;
+    }
   });
 
   // Seçilen çıkış aygıtı değiştikçe sanal mikrofon ipucunu tazele.
@@ -177,7 +191,25 @@
     {:else if tab === "player"}
       <section class="card">
         <h2>Oynatıcı</h2>
-        <p class="sub">Başka bir cihazın sesini bu bilgisayarda çal.</p>
+        <p class="sub">Başka bir cihazın sesini bu bilgisayarda kullan.</p>
+
+        <div class="modes">
+          <label class="mode" class:sel={playerMode === "listen"}>
+            <input type="radio" bind:group={playerMode} value="listen" />
+            <div>
+              <strong>Hoparlörden dinle</strong>
+              <span>Gelen ses bu bilgisayarın hoparlöründen çıkar</span>
+            </div>
+          </label>
+          <label class="mode" class:sel={playerMode === "mic"}>
+            <input type="radio" bind:group={playerMode} value="mic" />
+            <div>
+              <strong>Mikrofon olarak kullan</strong>
+              <span>Gelen ses sanal kabloya yazılır; Discord, Zoom gibi
+                    uygulamalarda mikrofon olarak seçilebilir</span>
+            </div>
+          </label>
+        </div>
 
         <div class="two">
           <label class="field">
@@ -202,7 +234,7 @@
           </span>
         </div>
 
-        {#if micHint?.paired_input}
+        {#if playerMode === "mic" && micHint?.paired_input}
           <div class="mic-ok">
             <strong>Sanal mikrofon hazır</strong>
             <p>
@@ -212,14 +244,14 @@
               mikrofonu oradan gelecek.
             </p>
           </div>
-        {:else if micHint && !micHint.any_virtual}
+        {:else if playerMode === "mic" && micHint && !micHint.any_virtual}
           <div class="mic-info">
-            <strong>Uzaktaki mikrofonu burada mikrofon olarak kullanmak mı istiyorsun?</strong>
+            <strong>Sanal ses kablosu bulunamadı</strong>
             <p>
-              Bunun için bir sanal ses kablosu gerekiyor; sistemde kurulu değil.
-              VB-CABLE gibi ücretsiz bir sürücü kurup çıkış aygıtı olarak
-              onun hoparlör ucunu seçmen yeterli — sonra uygulamalarda eşleşen
-              mikrofonu seçersin. Sadece dinlemek istiyorsan gerekmiyor.
+              Bu mod bir sanal ses kablosu gerektiriyor: bir ucu hoparlör, öbür
+              ucu mikrofon olan bir sürücü. RelAudio hoparlör ucuna yazar,
+              uygulamalar mikrofon ucundan okur. VB-CABLE ücretsiz ve bu işi
+              görüyor. Sadece dinlemek istiyorsan bu moda gerek yok.
             </p>
           </div>
         {/if}
@@ -275,9 +307,14 @@
   <aside>
     {#if tab === "player"}
       <div class="card tight">
-        <h3>Çıkış aygıtı</h3>
-        <DevicePicker {devices} kind="output" bind:value={outputId}
-                      label="Sesin çalınacağı yer" />
+        <h3>{playerMode === "mic" ? "Sanal kablo" : "Çıkış aygıtı"}</h3>
+        <DevicePicker devices={outputChoices} kind="output" bind:value={outputId}
+                      label={playerMode === "mic"
+                        ? "Sesin yazılacağı kablo (hoparlör ucu)"
+                        : "Sesin çalınacağı yer"}
+                      hint={playerMode === "mic"
+                        ? "Kablonun hoparlör ucunu seç; mikrofon ucu diğer uygulamalarda görünecek."
+                        : ""} />
         <button onclick={refresh}>Aygıtları yenile</button>
       </div>
     {:else if tab === "server"}
