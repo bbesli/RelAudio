@@ -85,6 +85,18 @@ pub struct StatsDto {
     pub player_buffer_ms: u64,
     /// Çalınan sesin tepe genliği (0–32767). Seviye çubuğu için.
     pub player_peak: u64,
+    /// Akışın **gerçekte** açtığı çıkış aygıtının adı. Seçili olan değil,
+    /// çalan olan: ikisi ayrışabiliyor ve "ses nereden çıkıyor?" sorusu
+    /// cevapsız kalıyordu.
+    pub player_device_name: String,
+    /// Gönderilen sesin kaynağı — aynı sebeple.
+    pub server_device_name: String,
+    /// Sunucu, oynatıcının yazdığı aygıtı yakalıyor mu? Öyleyse ses kendini
+    /// besliyor ve kullanıcı kendi sesini duyuyor.
+    pub feedback_loop: bool,
+    /// Karşılaştırma için ham kimlikler (arayüzde gösterilmiyor).
+    pub player_device_id: String,
+    pub server_device_id: String,
 
     /// Kullanıcıya gösterilecek son hata; okununca temizlenir.
     pub last_error: Option<String>,
@@ -234,7 +246,25 @@ fn stats(state: tauri::State<'_, AppState>) -> StatsDto {
     let mut s = StatsDto::default();
     state.server.fill(&mut s);
     state.player.fill(&mut s);
+    s.feedback_loop = detect_feedback(&s);
     s
+}
+
+/// Sunucunun yakaladığı kaynak, oynatıcının yazdığı çıkışla aynı aygıtsa
+/// ses kendi kuyruğunu yiyor: çalınan şey yeniden yakalanıp gönderiliyor.
+///
+/// Linux'ta sistem sesi kaynağı `<sink>.monitor` biçiminde, yani çıkış
+/// aygıtının kimliği kaynağın kimliğinin ön eki oluyor. Windows'ta loopback
+/// yakalama render aygıtının kimliğini birebir kullanıyor.
+fn detect_feedback(s: &StatsDto) -> bool {
+    if !(s.server_running && s.player_running) {
+        return false;
+    }
+    let (out, src) = (s.player_device_id.trim(), s.server_device_id.trim());
+    if out.is_empty() || src.is_empty() {
+        return false;
+    }
+    src == out || src == format!("{out}.monitor")
 }
 
 /// Bu makinenin yerel adresi — karşı tarafa yazılacak olan.

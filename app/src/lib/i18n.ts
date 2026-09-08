@@ -29,6 +29,10 @@ export const LOCALES: Locale[] = [
 type Dict = Record<string, string>;
 
 const tr: Dict = {
+  "stats.outputDevice": "Çıkış",
+  "stats.sourceDevice": "Kaynak",
+  "player.feedback": "Geri besleme döngüsü",
+  "player.feedbackBody": "Sunucu, oynatıcının yazdığı aygıtı yakalıyor. Ses kendi kuyruğunu yiyor — kendi sesini duymanın sebebi bu. İki taraftan birinde farklı bir aygıt seç.",
   "player.micStep1": "RelAudio sesi {cable} kablosuna yazıyor.",
   "player.micStep2": "Discord, Zoom veya Ses Kaydedici'yi aç ve mikrofon olarak {device} seç.",
   "player.micNotHere": "Bu aygıtı RelAudio'nun listesinde arama — o bir mikrofon, buradaki liste hoparlörleri gösteriyor. Diğer uygulamaların mikrofon listesinde çıkacak.",
@@ -129,6 +133,10 @@ const tr: Dict = {
 };
 
 const en: Dict = {
+  "stats.outputDevice": "Output",
+  "stats.sourceDevice": "Source",
+  "player.feedback": "Feedback loop",
+  "player.feedbackBody": "The server is capturing the same device the player writes to. The audio feeds itself back — that's why you hear yourself. Pick a different device on one of the two sides.",
   "player.micStep1": "RelAudio is writing audio into {cable}.",
   "player.micStep2": "Open Discord, Zoom or Sound Recorder and select {device} as the microphone.",
   "player.micNotHere": "Don't look for that device in RelAudio's list — it's a microphone, and this list shows speakers. It appears in the other app's microphone list.",
@@ -229,6 +237,10 @@ const en: Dict = {
 };
 
 const es: Dict = {
+  "stats.outputDevice": "Salida",
+  "stats.sourceDevice": "Origen",
+  "player.feedback": "Bucle de realimentación",
+  "player.feedbackBody": "El servidor está capturando el mismo dispositivo en el que escribe el reproductor. El audio se realimenta: por eso te oyes a ti mismo. Elige otro dispositivo en uno de los dos lados.",
   "player.micStep1": "RelAudio está escribiendo el audio en {cable}.",
   "player.micStep2": "Abre Discord, Zoom o la Grabadora de sonido y elige {device} como micrófono.",
   "player.micNotHere": "No busques ese dispositivo en la lista de RelAudio: es un micrófono y esta lista muestra altavoces. Aparece en la lista de micrófonos de la otra aplicación.",
@@ -296,6 +308,10 @@ const es: Dict = {
 };
 
 const de: Dict = {
+  "stats.outputDevice": "Ausgabe",
+  "stats.sourceDevice": "Quelle",
+  "player.feedback": "Rückkopplungsschleife",
+  "player.feedbackBody": "Der Server nimmt dasselbe Gerät auf, in das der Player schreibt. Der Ton speist sich selbst — deshalb hörst du dich selbst. Wähle auf einer der beiden Seiten ein anderes Gerät.",
   "player.micStep1": "RelAudio schreibt den Ton in {cable}.",
   "player.micStep2": "Öffne Discord, Zoom oder den Sprachrekorder und wähle {device} als Mikrofon.",
   "player.micNotHere": "Suche dieses Gerät nicht in der Liste von RelAudio — es ist ein Mikrofon, und diese Liste zeigt Lautsprecher. Es erscheint in der Mikrofonliste der anderen App.",
@@ -361,6 +377,10 @@ const de: Dict = {
 };
 
 const fr: Dict = {
+  "stats.outputDevice": "Sortie",
+  "stats.sourceDevice": "Source",
+  "player.feedback": "Boucle de retour",
+  "player.feedbackBody": "Le serveur capture le même périphérique que celui où écrit le lecteur. Le son se réinjecte — c'est pour cela que vous vous entendez. Choisissez un autre périphérique d'un des deux côtés.",
   "player.micStep1": "RelAudio écrit le son dans {cable}.",
   "player.micStep2": "Ouvrez Discord, Zoom ou l'Enregistreur vocal et choisissez {device} comme microphone.",
   "player.micNotHere": "Ne cherchez pas cet appareil dans la liste de RelAudio : c'est un microphone et cette liste montre les haut-parleurs. Il apparaît dans la liste des microphones de l'autre application.",
@@ -426,6 +446,10 @@ const fr: Dict = {
 };
 
 const pt: Dict = {
+  "stats.outputDevice": "Saída",
+  "stats.sourceDevice": "Origem",
+  "player.feedback": "Ciclo de retorno",
+  "player.feedbackBody": "O servidor está a capturar o mesmo dispositivo onde o reprodutor escreve. O áudio realimenta-se — é por isso que se ouve a si próprio. Escolha outro dispositivo num dos dois lados.",
   "player.micStep1": "O RelAudio está a escrever o áudio em {cable}.",
   "player.micStep2": "Abra o Discord, o Zoom ou o Gravador de Som e escolha {device} como microfone.",
   "player.micNotHere": "Não procure esse dispositivo na lista do RelAudio — é um microfone e esta lista mostra colunas. Aparece na lista de microfones da outra aplicação.",
@@ -491,6 +515,10 @@ const pt: Dict = {
 };
 
 const ru: Dict = {
+  "stats.outputDevice": "Вывод",
+  "stats.sourceDevice": "Источник",
+  "player.feedback": "Петля обратной связи",
+  "player.feedbackBody": "Сервер захватывает то же устройство, в которое пишет плеер. Звук возвращается сам в себя — поэтому вы слышите себя. Выберите другое устройство на одной из сторон.",
   "player.micStep1": "RelAudio пишет звук в {cable}.",
   "player.micStep2": "Откройте Discord, Zoom или «Звукозапись» и выберите {device} как микрофон.",
   "player.micNotHere": "Не ищите это устройство в списке RelAudio — это микрофон, а здесь показаны динамики. Оно появится в списке микрофонов другого приложения.",
@@ -556,6 +584,10 @@ const ru: Dict = {
 };
 
 const zh: Dict = {
+  "stats.outputDevice": "输出",
+  "stats.sourceDevice": "来源",
+  "player.feedback": "回授循环",
+  "player.feedbackBody": "发送端正在采集接收端写入的同一个设备，声音自己喂自己——这就是你听到自己声音的原因。请在其中一侧换一个设备。",
   "player.micStep1": "RelAudio 正在把声音写入 {cable}。",
   "player.micStep2": "打开 Discord、Zoom 或录音机，把 {device} 选为麦克风。",
   "player.micNotHere": "不要在 RelAudio 的列表里找这个设备——它是麦克风，而这里显示的是扬声器。它会出现在其他应用的麦克风列表中。",
@@ -613,6 +645,10 @@ const zh: Dict = {
 };
 
 const hi: Dict = {
+  "stats.outputDevice": "आउटपुट",
+  "stats.sourceDevice": "स्रोत",
+  "player.feedback": "फ़ीडबैक लूप",
+  "player.feedbackBody": "सर्वर उसी डिवाइस को कैप्चर कर रहा है जिसमें प्लेयर लिख रहा है। आवाज़ खुद को दोहरा रही है — इसीलिए आप खुद को सुन रहे हैं। दोनों में से किसी एक तरफ़ दूसरा डिवाइस चुनें।",
   "player.micStep1": "RelAudio आवाज़ {cable} में लिख रहा है।",
   "player.micStep2": "Discord, Zoom या साउंड रिकॉर्डर खोलें और माइक्रोफ़ोन के रूप में {device} चुनें।",
   "player.micNotHere": "यह डिवाइस RelAudio की सूची में न ढूँढें — वह माइक्रोफ़ोन है, और यह सूची स्पीकर दिखाती है। वह दूसरे ऐप की माइक्रोफ़ोन सूची में दिखेगा।",
@@ -670,6 +706,10 @@ const hi: Dict = {
 };
 
 const ar: Dict = {
+  "stats.outputDevice": "الإخراج",
+  "stats.sourceDevice": "المصدر",
+  "player.feedback": "حلقة ارتجاع",
+  "player.feedbackBody": "يلتقط طرف الإرسال الجهاز نفسه الذي يكتب فيه طرف الاستقبال. الصوت يعيد تغذية نفسه، ولهذا تسمع صوتك. اختر جهازًا آخر في أحد الطرفين.",
   "player.micStep1": "يكتب RelAudio الصوت في {cable}.",
   "player.micStep2": "افتح Discord أو Zoom أو مسجّل الصوت واختر {device} كميكروفون.",
   "player.micNotHere": "لا تبحث عن هذا الجهاز في قائمة RelAudio — إنه ميكروفون، وهذه القائمة تعرض السماعات. سيظهر في قائمة ميكروفونات التطبيق الآخر.",

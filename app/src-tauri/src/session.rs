@@ -12,6 +12,20 @@ use std::time::Instant;
 
 use crate::StatsDto;
 
+/// Kimlikten görünen ada çevirir. Boş kimlik = o türün varsayılanı.
+fn device_label(id: &str, kind: DeviceKind) -> (String, String) {
+    let devices = relaudio_core::audio::list_devices().unwrap_or_default();
+    let found = if id.is_empty() {
+        devices.iter().find(|d| d.kind == kind && d.is_default)
+    } else {
+        devices.iter().find(|d| d.id == id && d.kind == kind)
+    };
+    match found {
+        Some(d) => (d.id.clone(), d.name.clone()),
+        None => (id.to_string(), id.to_string()),
+    }
+}
+
 /// Bir saniyelik pencerede bit hızı hesaplamak için.
 struct Rate {
     last_bytes: u64,
@@ -40,6 +54,10 @@ struct Running<S> {
     handle: Option<std::thread::JoinHandle<()>>,
     label: String,
     rate: Rate,
+    /// Akışın açtığı aygıtın kimliği ve görünen adı — seçili olan değil,
+    /// fiilen kullanılan.
+    device_id: String,
+    device_name: String,
     /// Thread'in başlangıçtan sonra ölmesi hâlinde hatayı buraya yazar.
     /// Aygıt çıkarılması gibi durumlarda arayüz "Yayında" demeye devam
     /// etmemeli — [`Running::died`] bunu yakalar.
@@ -104,6 +122,7 @@ impl ServerSession {
             return Err(e);
         }
 
+        let (device_id, device_name) = device_label(device_id, kind);
         *self.inner.lock().unwrap() = Some(Running {
             stop,
             stats,
@@ -111,6 +130,8 @@ impl ServerSession {
             label: target.to_string(),
             rate: Rate::new(),
             err: err_slot,
+            device_id,
+            device_name,
         });
         *self.error.lock().unwrap() = None;
         Ok(())
@@ -138,6 +159,8 @@ impl ServerSession {
             out.server_target = r.label.clone();
             out.server_packets = packets;
             out.server_kbps = r.rate.update(bytes);
+            out.server_device_name = r.device_name.clone();
+            out.server_device_id = r.device_id.clone();
             out.server_silent_ratio = if packets > 0 {
                 silent as f64 / packets as f64
             } else {
@@ -163,6 +186,7 @@ impl PlayerSession {
         let stats = Arc::new(ReceiverStats::default());
         let (t_stop, t_stats) = (stop.clone(), stats.clone());
         let dev = device_id.to_string();
+        let dev_for_label = device_id.to_string();
         let buf = buffer_packets.clamp(2, 200);
 
         let err_slot = Arc::new(Mutex::new(None::<String>));
@@ -183,6 +207,7 @@ impl PlayerSession {
             return Err(e);
         }
 
+        let (device_id, device_name) = device_label(&dev_for_label, DeviceKind::Output);
         *self.inner.lock().unwrap() = Some(Running {
             stop,
             stats,
@@ -190,6 +215,8 @@ impl PlayerSession {
             label: port.to_string(),
             rate: Rate::new(),
             err: err_slot,
+            device_id,
+            device_name,
         });
         *self.error.lock().unwrap() = None;
         Ok(())
@@ -220,6 +247,8 @@ impl PlayerSession {
             out.player_dropped = s.dropped.load(Ordering::Relaxed);
             out.player_buffer_ms = s.buffer_depth.load(Ordering::Relaxed) * 5;
             out.player_peak = s.peak.load(Ordering::Relaxed);
+            out.player_device_name = r.device_name.clone();
+            out.player_device_id = r.device_id.clone();
         }
         if let Some(e) = self.error.lock().unwrap().take() {
             out.last_error = Some(e);

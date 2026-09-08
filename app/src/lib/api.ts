@@ -27,6 +27,9 @@ export interface Stats {
   player_dropped: number;
   player_buffer_ms: number;
   player_peak: number;
+  player_device_name: string;
+  server_device_name: string;
+  feedback_loop: boolean;
 
   last_error: string | null;
 }

@@ -203,6 +203,15 @@
   </nav>
 
   <main>
+    {#if stats?.feedback_loop}
+      <div class="err" role="alert">
+        <div>
+          <strong>{t("player.feedback")}</strong>
+          <p class="fb">{t("player.feedbackBody")}</p>
+        </div>
+      </div>
+    {/if}
+
     {#if error}
       <div class="err" role="alert">
         <strong>{t("error.title")}</strong><span>{error}</span>
@@ -424,12 +433,14 @@
       <h3>{t("stats.title")}</h3>
       {#if stats?.server_running}
         <div class="grp">{t("stats.sending")} → {stats.server_target}</div>
+        <StatRow label={t("stats.sourceDevice")} value={stats.server_device_name} />
         <StatRow label={t("stats.packets")} value={stats.server_packets.toLocaleString()} />
         <StatRow label={t("stats.bitrate")} value={`${stats.server_kbps.toFixed(0)} kbit/s`} />
         <StatRow label={t("stats.silentRatio")} value={`${(stats.server_silent_ratio * 100).toFixed(0)}%`} />
       {/if}
       {#if stats?.player_running}
         <div class="grp">{t("stats.receiving")} · {t("stats.port")} {stats.player_port}</div>
+        <StatRow label={t("stats.outputDevice")} value={stats.player_device_name} />
         <StatRow label={t("stats.packets")} value={stats.player_packets.toLocaleString()}
                  tone={stats.player_packets === 0 ? "warn" : "normal"} />
         {#if stats.player_packets === 0}
@@ -515,6 +526,7 @@
     border-radius: 9px; padding: 11px 14px; margin-bottom: 16px; font-size: 13px;
   }
   .err .x { margin-inline-start: auto; background: none; border: none; padding: 2px 6px; color: var(--dim); }
+  .err .fb { margin: 4px 0 0; color: var(--dim); line-height: 1.5; }
 
   .addr { border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px;
           margin-bottom: 16px; background: var(--panel-2); }

@@ -14,7 +14,11 @@
 <style>
   .row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 13px; }
   .k { color: var(--dim); }
-  .v { font-variant-numeric: tabular-nums; }
+  .v {
+    font-variant-numeric: tabular-nums;
+    text-align: end; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .v.ok { color: var(--ok); }
   .v.warn { color: var(--warn); }
   .v.bad { color: var(--bad); }
