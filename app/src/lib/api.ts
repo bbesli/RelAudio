@@ -55,6 +55,13 @@ export interface Peer {
 }
 
 export const getPeers = () => invoke<Peer[]>("peers");
+
+export interface MicHint {
+  paired_input: string | null;
+  any_virtual: boolean;
+}
+
+export const getMicHint = (output_id: string) => invoke<MicHint>("mic_hint", { outputId: output_id });
 export const getDeviceName = () => invoke<string>("device_name");
 
 export const setMinimizeToTray = (enabled: boolean) =>

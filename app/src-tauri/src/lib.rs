@@ -182,6 +182,32 @@ fn peers(state: tauri::State<'_, AppState>) -> Vec<PeerDto> {
 }
 
 /// Bu cihazın ağda görünen adı.
+#[derive(Serialize, Default)]
+pub struct MicHint {
+    /// Seçili çıkış bir sanal kablonun hoparlör ucuysa, mikrofon ucunun adı.
+    pub paired_input: Option<String>,
+    /// Sistemde herhangi bir sanal kablo var mı?
+    pub any_virtual: bool,
+}
+
+/// "Uzaktaki mikrofonu bu makinede mikrofon olarak kullan" senaryosunda
+/// kullanıcıya ne seçeceğini söylemek için.
+#[tauri::command]
+fn mic_hint(output_id: String) -> MicHint {
+    let Ok(devices) = audio::list_devices() else {
+        return MicHint::default();
+    };
+    let name = devices
+        .iter()
+        .find(|d| d.id == output_id && d.kind == DeviceKind::Output)
+        .map(|d| d.name.clone())
+        .unwrap_or_default();
+    MicHint {
+        paired_input: audio::paired_virtual_input(&name, &devices),
+        any_virtual: audio::has_virtual_output(&devices),
+    }
+}
+
 /// Log dosyasının yolu — sorun bildirirken kullanıcıya göstermek için.
 #[tauri::command]
 fn log_file() -> String {
@@ -317,6 +343,7 @@ pub fn run() {
             peers,
             device_name,
             log_file,
+            mic_hint,
             start_server,
             stop_server,
             start_player,

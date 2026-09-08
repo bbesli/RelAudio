@@ -2,7 +2,7 @@
   import {
     listDevices, startServer, stopServer, startPlayer, stopPlayer,
     getStats, setMinimizeToTray, getLocalAddress, getPeers, getDeviceName,
-    type Device, type Stats, type Peer,
+    getMicHint, type Device, type Stats, type Peer, type MicHint,
   } from "./lib/api";
   import DevicePicker from "./lib/DevicePicker.svelte";
   import StatRow from "./lib/StatRow.svelte";
@@ -17,6 +17,7 @@
   let myName = $state("");
   /// Eş seçimi: boş = elle IP gir
   let selectedPeer = $state("");
+  let micHint = $state<MicHint | null>(null);
   let error = $state<string | null>(null);
   let busy = $state(false);
 
@@ -59,6 +60,13 @@
     refresh();
     const id = setInterval(tick, 500);
     return () => clearInterval(id);
+  });
+
+  // Seçilen çıkış aygıtı değiştikçe sanal mikrofon ipucunu tazele.
+  $effect(() => {
+    const id = outputId;
+    if (!id) { micHint = null; return; }
+    getMicHint(id).then((h) => (micHint = h)).catch(() => (micHint = null));
   });
 
   async function act(fn: () => Promise<void>) {
@@ -193,6 +201,28 @@
             — diğer cihazın Sunucu sekmesinde bu adı seçmesi yeterli.
           </span>
         </div>
+
+        {#if micHint?.paired_input}
+          <div class="mic-ok">
+            <strong>Sanal mikrofon hazır</strong>
+            <p>
+              Sesi sanal bir kabloya yazıyorsun. Diğer uygulamalarda
+              (Discord, Zoom, Ses Kaydedici) mikrofon olarak
+              <strong>{micHint.paired_input}</strong> seç — karşı cihazın
+              mikrofonu oradan gelecek.
+            </p>
+          </div>
+        {:else if micHint && !micHint.any_virtual}
+          <div class="mic-info">
+            <strong>Uzaktaki mikrofonu burada mikrofon olarak kullanmak mı istiyorsun?</strong>
+            <p>
+              Bunun için bir sanal ses kablosu gerekiyor; sistemde kurulu değil.
+              VB-CABLE gibi ücretsiz bir sürücü kurup çıkış aygıtı olarak
+              onun hoparlör ucunu seçmen yeterli — sonra uygulamalarda eşleşen
+              mikrofonu seçersin. Sadece dinlemek istiyorsan gerekmiyor.
+            </p>
+          </div>
+        {/if}
 
         <div class="peers">
           <span class="lbl">Ağdaki diğer cihazlar</span>
@@ -393,6 +423,14 @@
   .tip {
     font-size: 11px; color: var(--warn); margin: 6px 0 10px; line-height: 1.45;
   }
+
+  .mic-ok, .mic-info {
+    border-radius: 9px; padding: 12px 14px; margin-bottom: 16px; font-size: 12px;
+  }
+  .mic-ok { border: 1px solid var(--ok); background: rgba(47, 191, 113, 0.10); }
+  .mic-info { border: 1px solid var(--line); background: var(--panel-2); }
+  .mic-ok p, .mic-info p { margin: 5px 0 0; color: var(--dim); line-height: 1.5; }
+  .mic-ok p strong { color: var(--text); }
 
   .peers { margin-bottom: 18px; }
   .peers ul { list-style: none; margin: 6px 0 0; padding: 0; }
