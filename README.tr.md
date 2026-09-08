@@ -123,6 +123,33 @@ bak (`pactl list sink-inputs`).
 
 Aynısı, ama gönderen makinede **Mikrofon**'u seç ve sağ panelden mikrofonu belirle.
 
+### Kulaklık modu — bir makinenin kulaklığını diğerinde kullan
+
+RelAudio'nun asıl yazılma sebebi bu: B makinesini kullanıyorsun (Parsec, RDP,
+Sunshine, ne olursa) ama kulaklığın A makinesinde takılı ve onun B'nin
+kulaklığı gibi davranmasını istiyorsun — hem mikrofon hem hoparlör.
+
+İki makinede de **Kulaklık** sekmesini aç ve rol seç:
+
+| Makine | Rol | Ne yapar |
+|---|---|---|
+| Kulaklığın takılı olduğu | **Kulaklık bu makinede** | Mikrofonunu gönderir, geleni bu kulaklıkta çalar |
+| Kullandığın makine | **Uzak makine** | Gelen mikrofonu sanal kabloya yazar, sistem sesini geri gönderir |
+
+Karşı cihazı hedef seç, iki tarafta da başlat. Aygıtları RelAudio kendisi
+seçiyor ve asla bozmadığı tek bir kural var: **bir makinede yakaladığı aygıt
+ile yazdığı aygıt asla aynı olmaz.** Bu kural bozulursa ses kendi kuyruğunu
+yer ve kendi sesini duyarsın.
+
+Uzak makinede toplantı uygulamasına hangi mikrofonu kullanacağını yine sen
+söylüyorsun — uygulama adı ekranda yazıyor.
+
+> **Uzak masaüstünün ses aktarımını kapat.** Parsec, RDP ve benzerleri
+> makinenin varsayılan çıkışını yakalayıp sana gönderiyor. RelAudio da aynı
+> sesi taşıyorsa iki kez alırsın — ve uzak masaüstü RelAudio'nun yazdığı
+> kabloyu yakalıyorsa kendi sesini duyarsın. Sesi RelAudio taşısın, uzak
+> masaüstü görüntü ve klavye/fare ile ilgilensin.
+
 ### Uzaktaki mikrofonu yerel mikrofon olarak kullan
 
 Biraz kurulum gerektiren senaryo bu. Windows'ta da Linux'ta da bir uygulamanın

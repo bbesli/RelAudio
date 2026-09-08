@@ -127,6 +127,33 @@ actually using (`pactl list sink-inputs`).
 Same as above, but choose **Microphone** on the sending machine and pick the
 mic in the right-hand panel.
 
+### Headset mode — use one machine's headset on the other
+
+This is the case RelAudio was built for: you drive machine B (over Parsec,
+RDP, Sunshine, whatever) but your headset is plugged into machine A, and you
+want it to behave as B's headset — microphone *and* speakers.
+
+Open the **Headset** tab on both machines and pick a role:
+
+| Machine | Role | What it does |
+|---|---|---|
+| Where the headset is plugged in | **Headset is on this machine** | Sends its microphone, plays what comes back |
+| The one you're controlling | **Remote machine** | Writes the incoming mic into a virtual cable, sends its system audio back |
+
+Pick the other device as the target, press start on both. RelAudio chooses the
+devices itself, with one rule it never breaks: **on a given machine, the device
+it captures from is never the device it writes to.** Break that rule and the
+audio feeds itself back and you hear your own voice.
+
+On the remote machine you still tell your meeting app which microphone to use —
+the app shows you the name.
+
+> **Turn off your remote desktop's audio streaming.** Parsec, RDP and the rest
+> capture the machine's default output and send it to you. If RelAudio is also
+> relaying audio, you get it twice — and if the remote desktop happens to
+> capture the same cable RelAudio writes into, you hear yourself. Let RelAudio
+> carry the audio; let the remote desktop carry video and input.
+
 ### Use a remote microphone as a local microphone
 
 This is the one that needs a little setup. Windows and Linux have no built-in

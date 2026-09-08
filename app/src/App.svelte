@@ -11,9 +11,11 @@
   import StatRow from "./lib/StatRow.svelte";
   import BuyMeCoffee from "./lib/BuyMeCoffee.svelte";
 
-  type Tab = "server" | "player" | "settings";
+  type Tab = "headset" | "server" | "player" | "settings";
+  type HeadsetRole = "local" | "remote";
 
-  let tab = $state<Tab>("server");
+  let tab = $state<Tab>("headset");
+  let headsetRole = $state<HeadsetRole>("local");
   let devices = $state<Device[]>([]);
   let stats = $state<Stats | null>(null);
   let peers = $state<Peer[]>([]);
@@ -205,12 +207,84 @@
     });
 
   const running = $derived(stats?.server_running || stats?.player_running);
+  /** Kulaklık modu = iki yön birden çalışıyor. */
+  const headsetRunning = $derived(!!stats?.server_running && !!stats?.player_running);
+
+  // — Kulaklık modu aygıt seçimi —
+  //
+  // Tek kural: aynı makinede **yakalanan aygıt ile yazılan aygıt aynı
+  // olmamalı**. Aynı olursa ses kendi kuyruğunu yer ve kullanıcı kendini
+  // duyar. Sanal kablo tarafında bu özellikle kolay: kabloya yazıp yine
+  // kablonun loopback'ini yakalamak tek satırlık bir hata.
+  const physicalOutputs = $derived(devices.filter((d) => d.kind === "output" && !d.virtual_cable));
+  const cables = $derived(
+    devices.filter((d) => d.kind === "output" && d.virtual_cable)
+           .slice().sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0))
+  );
+  const physicalMonitors = $derived(devices.filter((d) => d.kind === "monitor" && !d.virtual_cable));
+  const physicalMics = $derived(devices.filter((d) => d.kind === "input" && !d.virtual_cable));
+
+  function pick(list: Device[]): Device | undefined {
+    return list.find((d) => d.is_default) ?? list[0];
+  }
+
+  /** Seçilen role göre (yakalama, çalma) aygıtlarını çözer. */
+  function headsetDevices(role: HeadsetRole):
+    { capture?: Device; play?: Device; kind: "input" | "monitor"; error?: string } {
+    if (role === "local") {
+      const capture = pick(physicalMics);
+      const play = pick(physicalOutputs);
+      if (!play) return { kind: "input", error: t("headset.needPhysical") };
+      return { capture, play, kind: "input" };
+    }
+    const play = cables[0];
+    if (!play) return { kind: "monitor", error: t("headset.needCable") };
+    // Kabloya yazıp aynı kabloyu yakalamak döngü kurar; fiziksel çıkışın
+    // monitörünü seç.
+    const capture = pick(physicalMonitors.filter((m) => !m.id.startsWith(play.id)));
+    if (!capture) return { kind: "monitor", error: t("headset.needPhysical") };
+    return { capture, play, kind: "monitor" };
+  }
+
+  const headsetPlan = $derived(headsetDevices(headsetRole));
+  const headsetPairedMic = $derived(
+    headsetRole === "remote" && headsetPlan.play
+      ? devices.find((d) => d.kind === "input" && d.virtual_cable)?.name ?? "?"
+      : ""
+  );
+
+  const toggleHeadset = () =>
+    act(async () => {
+      if (headsetRunning) {
+        await stopServer();
+        await stopPlayer();
+        return;
+      }
+      const plan = headsetDevices(headsetRole);
+      if (plan.error) throw new Error(plan.error);
+      const peer = peers.find((p) => p.id === selectedPeer);
+      const dest = peer ? `${peer.address}:${peer.port}` : (cfg!.server_target ?? "").trim();
+      if (!dest) throw new Error(t("error.needTarget"));
+
+      persist({
+        player_mode: headsetRole === "remote" ? "mic" : "listen",
+        player_device: plan.play!.id,
+        server_source: plan.kind === "input" ? "input" : "monitor",
+        ...(plan.kind === "input"
+          ? { server_device_input: plan.capture!.id }
+          : { server_device_monitor: plan.capture!.id }),
+      });
+      await startPlayer(cfg!.player_port, plan.play!.id, cfg!.player_buffer);
+      await startServer(dest, plan.capture!.id, plan.kind === "input" ? "input" : "monitor");
+    });
 </script>
 
 {#if cfg}
 <div class="app">
   <nav>
     <div class="brand">RelAudio</div>
+    <button class="tab" class:active={tab === "headset"} onclick={() => (tab = "headset")}>
+      {t("nav.headset")}</button>
     <button class="tab" class:active={tab === "server"} onclick={() => (tab = "server")}>
       {t("nav.server")}</button>
     <button class="tab" class:active={tab === "player"} onclick={() => (tab = "player")}>
@@ -240,7 +314,73 @@
       </div>
     {/if}
 
-    {#if tab === "server"}
+    {#if tab === "headset"}
+      <section class="card">
+        <h2>{t("headset.title")}</h2>
+        <p class="sub">{t("headset.subtitle")}</p>
+
+        <div class="modes">
+          <label class="mode" class:sel={headsetRole === "local"}>
+            <input type="radio" checked={headsetRole === "local"}
+                   onchange={() => (headsetRole = "local")} disabled={headsetRunning} />
+            <div><strong>{t("headset.local")}</strong><span>{t("headset.localDesc")}</span></div>
+          </label>
+          <label class="mode" class:sel={headsetRole === "remote"}>
+            <input type="radio" checked={headsetRole === "remote"}
+                   onchange={() => (headsetRole = "remote")} disabled={headsetRunning} />
+            <div><strong>{t("headset.remote")}</strong><span>{t("headset.remoteDesc")}</span></div>
+          </label>
+        </div>
+
+        <label class="field">
+          <span class="lbl">{t("headset.target")}</span>
+          <select bind:value={selectedPeer} disabled={headsetRunning}>
+            {#each peers as p (p.id)}
+              <option value={p.id}>{p.name} — {p.address}</option>
+            {/each}
+            <option value="">{t("server.manual")}</option>
+          </select>
+          {#if peers.length === 0}<span class="hint">{t("server.noPeers")}</span>{/if}
+        </label>
+
+        {#if !selectedPeer}
+          <label class="field">
+            <span class="lbl">{t("server.address")}</span>
+            <input type="text" value={cfg.server_target} placeholder="192.168.1.10"
+                   disabled={headsetRunning}
+                   oninput={(e) => persist({ server_target: e.currentTarget.value })} />
+          </label>
+        {/if}
+
+        {#if headsetPlan.error}
+          <div class="mic-info"><strong>{headsetPlan.error}</strong></div>
+        {:else}
+          <div class="plan">
+            <div class="row"><span>{t("stats.sourceDevice")}</span><strong>{headsetPlan.capture?.name ?? "—"}</strong></div>
+            <div class="row"><span>{t("stats.outputDevice")}</span><strong>{headsetPlan.play?.name ?? "—"}</strong></div>
+          </div>
+        {/if}
+
+        {#if headsetRunning}
+          <div class="mic-ok">
+            <strong>{t("headset.setupTitle")}</strong>
+            <ol class="steps">
+              {#if headsetRole === "remote"}
+                <li><strong class="pick">{t("headset.setupMic", { device: headsetPairedMic })}</strong></li>
+              {/if}
+              <li>{t("headset.setupOut", { device: headsetPlan.play?.name ?? "—" })}</li>
+            </ol>
+            <p class="warn-line">{t("headset.parsec")}</p>
+          </div>
+        {/if}
+
+        <button class:danger={headsetRunning} class:primary={!headsetRunning}
+                onclick={toggleHeadset} disabled={busy || !!headsetPlan.error}>
+          {headsetRunning ? t("headset.stop") : t("headset.start")}
+        </button>
+      </section>
+
+    {:else if tab === "server"}
       <section class="card">
         <h2>{t("server.title")}</h2>
         <p class="sub">{t("server.subtitle")}</p>
@@ -582,6 +722,13 @@
   .steps li.done { color: var(--dim); }
   .steps .pick { font-weight: 600; }
   .aside-note { font-size: 11px; }
+
+  .plan {
+    border: 1px solid var(--line); border-radius: 9px;
+    padding: 10px 14px; margin-bottom: 16px; background: var(--panel-2);
+  }
+  .plan .row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: 12px; }
+  .plan .row span { color: var(--dim); }
 
   .peers { margin-bottom: 18px; }
   .peers ul { list-style: none; margin: 6px 0 0; padding: 0; }
