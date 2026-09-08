@@ -91,50 +91,66 @@ pub fn open_playback(id: &str) -> Result<Box<dyn Playback>> {
 /// ucundan oluşur: çıkışa yazılan, girişten okunur. "Uzaktaki mikrofonu bu
 /// makinede mikrofon olarak kullanma" senaryosu bununla çözülüyor —
 /// kendi sürücümüzü yazmadan (docs/04, ADR-0003).
-const VIRTUAL_TOKENS: &[&str] = &[
-    "cable",       // VB-CABLE: "CABLE Input" / "CABLE Output"
-    "vb-audio",
-    "voicemeeter",
-    "virtual",     // "Virtual Speaker for X" / "Virtual Mic for X"
-    "audiorelay",
-    "relaudio",
-    "blackhole",
+/// Sanal ses kablosu satıcılarını tanıyan belirteçler ve ağırlıkları.
+///
+/// Ağırlık şart: iki farklı satıcının kablosu aynı anda kurulu olabiliyor ve
+/// "virtual" gibi genel bir kelime ikisinde de geçiyor. Gerçek bir makinede
+/// hem VB-CABLE hem AudioRelay kuruluyken, "CABLE Input (VB-Audio Virtual
+/// Cable)" çıkışı yanlışlıkla "Virtual Mic for AudioRelay" ile eşleşiyordu.
+/// Satıcıya özgü belirteçler genel olanları yenmeli.
+const VIRTUAL_TOKENS: &[(&str, u32)] = &[
+    // Satıcıya özgü — güçlü kanıt
+    ("vb-audio", 10),
+    ("voicemeeter", 10),
+    ("audiorelay", 10),
+    ("blackhole", 10),
+    ("relaudio", 10),
+    // Genel — yalnızca destekleyici
+    ("cable", 3),
+    ("virtual", 1),
 ];
+
+fn token_score(name: &str, against: &str) -> u32 {
+    let (a, b) = (name.to_lowercase(), against.to_lowercase());
+    VIRTUAL_TOKENS
+        .iter()
+        .filter(|(t, _)| a.contains(t) && b.contains(t))
+        .map(|(_, w)| w)
+        .sum()
+}
+
+fn looks_virtual(name: &str) -> bool {
+    let n = name.to_lowercase();
+    VIRTUAL_TOKENS.iter().any(|(t, _)| n.contains(t))
+}
 
 /// Seçilen çıkış bir sanal kablonun hoparlör ucuysa, aynı kabloya ait
 /// mikrofon ucunu bulur.
 ///
-/// Kullanıcıya "diğer uygulamalarda mikrofon olarak şunu seç" diyebilmek için.
-/// Eşleştirme satıcı belirtecine göre yapılıyor; isim kalıpları satıcıdan
-/// satıcıya değiştiği için tam eşleşme aramıyoruz.
+/// Bir sanal kablo bir **çıkış** (hoparlör) ile bir **giriş** (mikrofon)
+/// ucundan oluşur: çıkışa yazılan, girişten okunur. "Uzaktaki mikrofonu bu
+/// makinede mikrofon olarak kullanma" senaryosu bununla çözülüyor — kendi
+/// sürücümüzü yazmadan (docs/04, ADR-0003).
+///
+/// Birden fazla satıcının kablosu kuruluysa en çok belirteç paylaşan seçilir.
 pub fn paired_virtual_input(output_name: &str, devices: &[DeviceInfo]) -> Option<String> {
-    let out = output_name.to_lowercase();
-    let matched: Vec<&str> = VIRTUAL_TOKENS
-        .iter()
-        .copied()
-        .filter(|t| out.contains(t))
-        .collect();
-    if matched.is_empty() {
+    if !looks_virtual(output_name) {
         return None;
     }
     devices
         .iter()
         .filter(|d| d.kind == DeviceKind::Input)
-        .find(|d| {
-            let n = d.name.to_lowercase();
-            matched.iter().any(|t| n.contains(t))
-        })
-        .map(|d| d.name.clone())
+        .map(|d| (token_score(output_name, &d.name), d))
+        .filter(|(score, _)| *score > 0)
+        .max_by_key(|(score, _)| *score)
+        .map(|(_, d)| d.name.clone())
 }
 
 /// Sistemde herhangi bir sanal kablo hoparlörü var mı?
 pub fn has_virtual_output(devices: &[DeviceInfo]) -> bool {
-    devices.iter().any(|d| {
-        d.kind == DeviceKind::Output && {
-            let n = d.name.to_lowercase();
-            VIRTUAL_TOKENS.iter().any(|t| n.contains(t))
-        }
-    })
+    devices
+        .iter()
+        .any(|d| d.kind == DeviceKind::Output && looks_virtual(&d.name))
 }
 
 /// Verilen tür için varsayılan aygıtı bulur.
@@ -153,39 +169,39 @@ mod tests {
         DeviceInfo { id: name.into(), name: name.into(), kind, is_default: false }
     }
 
-    #[test]
-    fn pairs_vb_cable_speaker_with_its_microphone() {
-        let devices = vec![
-            dev("Speakers (Realtek(R) Audio)", DeviceKind::Output),
+    /// Gerçek bir Windows makinesinden alınan aygıt listesi: hem VB-CABLE
+    /// hem AudioRelay kurulu. Genel "virtual" kelimesi ikisinde de geçiyor.
+    fn real_windows_devices() -> Vec<DeviceInfo> {
+        vec![
             dev("CABLE Input (VB-Audio Virtual Cable)", DeviceKind::Output),
-            dev("Microphone Array (Intel)", DeviceKind::Input),
+            dev("CABLE In 16ch (VB-Audio Virtual Cable)", DeviceKind::Output),
+            dev("Speakers (Realtek(R) Audio)", DeviceKind::Output),
+            dev("Virtual Speakers (Virtual Speakers for AudioRelay)", DeviceKind::Output),
+            dev("Virtual Mic (Virtual Mic for AudioRelay)", DeviceKind::Input),
             dev("CABLE Output (VB-Audio Virtual Cable)", DeviceKind::Input),
-        ];
-        assert_eq!(
-            paired_virtual_input("CABLE Input (VB-Audio Virtual Cable)", &devices),
-            Some("CABLE Output (VB-Audio Virtual Cable)".into())
-        );
+            dev("Microphone Array (Intel)", DeviceKind::Input),
+        ]
     }
 
     #[test]
-    fn pairs_vendor_named_devices() {
-        let devices = vec![
-            dev("Virtual Speaker for AudioRelay", DeviceKind::Output),
-            dev("Virtual Mic for AudioRelay", DeviceKind::Input),
-        ];
+    fn picks_the_right_vendor_when_two_cables_are_installed() {
+        let d = real_windows_devices();
         assert_eq!(
-            paired_virtual_input("Virtual Speaker for AudioRelay", &devices),
-            Some("Virtual Mic for AudioRelay".into())
+            paired_virtual_input("CABLE Input (VB-Audio Virtual Cable)", &d),
+            Some("CABLE Output (VB-Audio Virtual Cable)".into()),
+            "VB-CABLE hoparlörü AudioRelay mikrofonuyla eşleşmemeli"
+        );
+        assert_eq!(
+            paired_virtual_input("Virtual Speakers (Virtual Speakers for AudioRelay)", &d),
+            Some("Virtual Mic (Virtual Mic for AudioRelay)".into()),
+            "AudioRelay hoparlörü VB-CABLE mikrofonuyla eşleşmemeli"
         );
     }
 
     #[test]
     fn real_speakers_have_no_paired_microphone() {
-        let devices = vec![
-            dev("Speakers (Realtek(R) Audio)", DeviceKind::Output),
-            dev("Microphone Array (Intel)", DeviceKind::Input),
-        ];
-        assert_eq!(paired_virtual_input("Speakers (Realtek(R) Audio)", &devices), None);
+        let d = real_windows_devices();
+        assert_eq!(paired_virtual_input("Speakers (Realtek(R) Audio)", &d), None);
     }
 
     #[test]
