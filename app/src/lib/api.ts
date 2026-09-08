@@ -18,6 +18,7 @@ export interface Stats {
   server_packets: number;
   server_kbps: number;
   server_silent_ratio: number;
+  server_send_errors: number;
 
   player_running: boolean;
   player_port: number;

@@ -472,6 +472,10 @@
         <StatRow label={t("stats.packets")} value={stats.server_packets.toLocaleString()} />
         <StatRow label={t("stats.bitrate")} value={`${stats.server_kbps.toFixed(0)} kbit/s`} />
         <StatRow label={t("stats.silentRatio")} value={`${(stats.server_silent_ratio * 100).toFixed(0)}%`} />
+        {#if stats.server_send_errors > 0}
+          <StatRow label={t("stats.sendErrors")} value={String(stats.server_send_errors)} tone="bad" />
+          <p class="tip">{t("server.notReaching")}</p>
+        {/if}
       {/if}
       {#if stats?.player_running}
         <div class="grp">{t("stats.receiving")} · {t("stats.port")} {stats.player_port}</div>

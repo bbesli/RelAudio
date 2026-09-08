@@ -76,6 +76,8 @@ pub struct StatsDto {
     pub server_packets: u64,
     pub server_kbps: f64,
     pub server_silent_ratio: f64,
+    /// Gönderilemeyen paket sayısı — yanlış hedef adresin tek görünür işareti.
+    pub server_send_errors: u64,
 
     pub player_running: bool,
     pub player_port: u16,

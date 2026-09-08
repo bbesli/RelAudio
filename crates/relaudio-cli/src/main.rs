@@ -287,19 +287,21 @@ fn install_sigint(stop: Stopper) {
 
 fn spawn_reporter_send(stats: Arc<SenderStats>, stop: Stopper) {
     std::thread::spawn(move || {
-        let mut last = (0u64, 0u64, 0u64);
+        let mut last = (0u64, 0u64, 0u64, 0u64);
         while !stop.stopped() {
             std::thread::sleep(Duration::from_secs(1));
             let now = stats.snapshot();
             let dp = now.0 - last.0;
             let db = now.1 - last.1;
             let ds = now.2 - last.2;
+            let errs = now.3;
             println!(
-                "gönderilen {:>7} paket ({:>5.1} s ses)  {:>6.1} kbit/s  sessiz {:>4}/s  toplam {:.2} MB",
+                "gönderilen {:>7} paket ({:>5.1} s ses)  {:>6.1} kbit/s  sessiz {:>4}/s  hata {:>4}  toplam {:.2} MB",
                 now.0,
                 now.0 as f64 * 0.005,
                 db as f64 * 8.0 / 1000.0,
                 ds,
+                errs,
                 now.1 as f64 / 1_048_576.0
             );
             let _ = dp;

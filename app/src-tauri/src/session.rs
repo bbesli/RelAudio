@@ -159,7 +159,8 @@ impl ServerSession {
                 Some(reason.unwrap_or_else(|| "Gönderim beklenmedik şekilde durdu".into()));
         }
         if let Some(r) = guard.as_mut() {
-            let (packets, bytes, silent) = r.stats.snapshot();
+            let (packets, bytes, silent, errors) = r.stats.snapshot();
+            out.server_send_errors = errors;
             out.server_running = true;
             out.server_target = r.label.clone();
             out.server_packets = packets;

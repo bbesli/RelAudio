@@ -29,6 +29,8 @@ export const LOCALES: Locale[] = [
 type Dict = Record<string, string>;
 
 const tr: Dict = {
+  "stats.sendErrors": "Gönderilemeyen",
+  "server.notReaching": "Paketler hedefe ulaşmıyor. Karşı cihaz dinlemiyor ya da adres yanlış — aynı cihaz ağda birden fazla adres ilan ediyorsa yanlışı seçilmiş olabilir. Hedefi yeniden seç veya adresi elle gir.",
   "player.cableIsDefault": "Bu kablo aynı zamanda sistemin **varsayılan çıkışı**. Windows'un tüm sesi de mikrofona karışıyor ve kendini duyuyorsun. Ses ayarlarından varsayılan çıkışı hoparlörüne geri al.",
   "player.listenTabHint": "Hâlâ duyuyorsan: Ses ayarları → Kayıt → mikrofon ucu → Özellikler → **Dinle** sekmesi → \"Bu aygıtı dinle\" işaretini kaldır.",
   "tray.show": "Göster",
@@ -138,6 +140,8 @@ const tr: Dict = {
 };
 
 const en: Dict = {
+  "stats.sendErrors": "Send errors",
+  "server.notReaching": "Packets are not reaching the target. The other device isn't listening, or the address is wrong — a machine with several network adapters can advertise more than one. Re-pick the target or enter the address manually.",
   "player.cableIsDefault": "This cable is also your **system default output**. Everything Windows plays is mixing into the microphone, which is why you hear yourself. Set your default output back to your speakers.",
   "player.listenTabHint": "Still hearing yourself? Sound settings → Recording → the microphone end → Properties → **Listen** tab → uncheck \"Listen to this device\".",
   "tray.show": "Show",
@@ -247,6 +251,8 @@ const en: Dict = {
 };
 
 const es: Dict = {
+  "stats.sendErrors": "Errores de envío",
+  "server.notReaching": "Los paquetes no llegan al destino. El otro dispositivo no está escuchando o la dirección es incorrecta: un equipo con varios adaptadores puede anunciar más de una. Vuelve a elegir el destino o escribe la dirección.",
   "player.cableIsDefault": "Este cable es además la **salida predeterminada del sistema**. Todo lo que reproduce Windows se mezcla en el micrófono, por eso te oyes. Vuelve a poner tus altavoces como salida predeterminada.",
   "player.listenTabHint": "¿Sigues oyéndote? Configuración de sonido → Grabación → el extremo micrófono → Propiedades → pestaña **Escuchar** → desmarca \"Escuchar este dispositivo\".",
   "tray.show": "Mostrar",
@@ -323,6 +329,8 @@ const es: Dict = {
 };
 
 const de: Dict = {
+  "stats.sendErrors": "Sendefehler",
+  "server.notReaching": "Die Pakete erreichen das Ziel nicht. Das andere Gerät hört nicht zu, oder die Adresse ist falsch — ein Rechner mit mehreren Adaptern kann mehrere ankündigen. Ziel neu wählen oder Adresse manuell eingeben.",
   "player.cableIsDefault": "Dieses Kabel ist zugleich die **Standardausgabe des Systems**. Alles, was Windows abspielt, mischt sich ins Mikrofon — deshalb hörst du dich selbst. Stelle die Standardausgabe wieder auf deine Lautsprecher.",
   "player.listenTabHint": "Hörst du dich weiterhin? Sound-Einstellungen → Aufnahme → Mikrofonende → Eigenschaften → Reiter **Abhören** → \"Dieses Gerät abhören\" deaktivieren.",
   "tray.show": "Anzeigen",
@@ -397,6 +405,8 @@ const de: Dict = {
 };
 
 const fr: Dict = {
+  "stats.sendErrors": "Erreurs d'envoi",
+  "server.notReaching": "Les paquets n'atteignent pas la cible. L'autre appareil n'écoute pas, ou l'adresse est fausse — une machine à plusieurs cartes réseau peut en annoncer plusieurs. Re-sélectionnez la cible ou saisissez l'adresse.",
   "player.cableIsDefault": "Ce câble est aussi la **sortie par défaut du système**. Tout ce que joue Windows se mélange au microphone, d'où l'écho. Remettez vos haut-parleurs en sortie par défaut.",
   "player.listenTabHint": "Vous vous entendez encore ? Paramètres audio → Enregistrement → l'extrémité microphone → Propriétés → onglet **Écouter** → décochez \"Écouter ce périphérique\".",
   "tray.show": "Afficher",
@@ -471,6 +481,8 @@ const fr: Dict = {
 };
 
 const pt: Dict = {
+  "stats.sendErrors": "Erros de envio",
+  "server.notReaching": "Os pacotes não chegam ao destino. O outro dispositivo não está a ouvir ou o endereço está errado — uma máquina com vários adaptadores pode anunciar mais do que um. Volte a escolher o destino ou escreva o endereço.",
   "player.cableIsDefault": "Este cabo é também a **saída predefinida do sistema**. Tudo o que o Windows reproduz mistura-se no microfone, por isso se ouve. Volte a definir as colunas como saída predefinida.",
   "player.listenTabHint": "Continua a ouvir-se? Definições de som → Gravação → a ponta de microfone → Propriedades → separador **Ouvir** → desmarque \"Ouvir este dispositivo\".",
   "tray.show": "Mostrar",
@@ -545,6 +557,8 @@ const pt: Dict = {
 };
 
 const ru: Dict = {
+  "stats.sendErrors": "Ошибки отправки",
+  "server.notReaching": "Пакеты не доходят до цели. Другое устройство не принимает, или адрес неверен — машина с несколькими адаптерами может объявлять несколько адресов. Выберите цель заново или введите адрес вручную.",
   "player.cableIsDefault": "Этот кабель одновременно является **устройством вывода по умолчанию**. Всё, что играет Windows, подмешивается в микрофон — поэтому вы слышите себя. Верните динамики как устройство по умолчанию.",
   "player.listenTabHint": "Всё ещё слышите себя? Параметры звука → Запись → конец-микрофон → Свойства → вкладка **Прослушать** → снимите «Прослушивать с данного устройства».",
   "tray.show": "Показать",
@@ -619,6 +633,8 @@ const ru: Dict = {
 };
 
 const zh: Dict = {
+  "stats.sendErrors": "发送失败",
+  "server.notReaching": "数据包没有到达目标。对方没有在接收，或者地址不对——有多个网卡的机器可能公布多个地址。请重新选择目标或手动输入地址。",
   "player.cableIsDefault": "这个虚拟声卡同时是**系统默认输出设备**。Windows 播放的一切都会混进麦克风，所以你会听到自己。请把默认输出改回扬声器。",
   "player.listenTabHint": "仍然听到自己？声音设置 → 录制 → 麦克风端 → 属性 → **侦听**选项卡 → 取消勾选“侦听此设备”。",
   "tray.show": "显示",
@@ -685,6 +701,8 @@ const zh: Dict = {
 };
 
 const hi: Dict = {
+  "stats.sendErrors": "भेजने में त्रुटि",
+  "server.notReaching": "पैकेट लक्ष्य तक नहीं पहुँच रहे। दूसरा डिवाइस सुन नहीं रहा, या पता ग़लत है — कई नेटवर्क अडैप्टर वाली मशीन एक से ज़्यादा पते बता सकती है। लक्ष्य दोबारा चुनें या पता खुद लिखें।",
   "player.cableIsDefault": "यह केबल आपका **सिस्टम डिफ़ॉल्ट आउटपुट** भी है। Windows जो कुछ भी बजाता है वह माइक्रोफ़ोन में मिल रहा है, इसीलिए आप खुद को सुनते हैं। डिफ़ॉल्ट आउटपुट वापस स्पीकर पर करें।",
   "player.listenTabHint": "अब भी खुद को सुन रहे हैं? ध्वनि सेटिंग्स → रिकॉर्डिंग → माइक्रोफ़ोन सिरा → गुण → **सुनें** टैब → \"इस डिवाइस को सुनें\" हटाएँ।",
   "tray.show": "दिखाएँ",
@@ -751,6 +769,8 @@ const hi: Dict = {
 };
 
 const ar: Dict = {
+  "stats.sendErrors": "أخطاء الإرسال",
+  "server.notReaching": "الحزم لا تصل إلى الهدف. الجهاز الآخر لا يستقبل، أو العنوان خاطئ — الجهاز الذي له عدة محوّلات شبكة قد يعلن أكثر من عنوان. أعد اختيار الهدف أو أدخل العنوان يدويًا.",
   "player.cableIsDefault": "هذا الكابل هو أيضًا **مخرج النظام الافتراضي**. كل ما يشغّله Windows يختلط بالميكروفون، ولهذا تسمع صوتك. أعِد ضبط المخرج الافتراضي على السماعات.",
   "player.listenTabHint": "ما زلت تسمع صوتك؟ إعدادات الصوت ← تسجيل ← طرف الميكروفون ← خصائص ← تبويب **الاستماع** ← أزل \"الاستماع إلى هذا الجهاز\".",
   "tray.show": "إظهار",

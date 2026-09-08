@@ -16,14 +16,19 @@ pub struct SenderStats {
     pub packets: AtomicU64,
     pub bytes: AtomicU64,
     pub silent_packets: AtomicU64,
+    /// Gönderilemeyen paketler. Sıfırdan büyükse hedef adres yanlış ya da
+    /// karşı taraf dinlemiyor — belirti "hiçbir şey olmuyor" olduğu için
+    /// bunun görünür olması şart.
+    pub send_errors: AtomicU64,
 }
 
 impl SenderStats {
-    pub fn snapshot(&self) -> (u64, u64, u64) {
+    pub fn snapshot(&self) -> (u64, u64, u64, u64) {
         (
             self.packets.load(Ordering::Relaxed),
             self.bytes.load(Ordering::Relaxed),
             self.silent_packets.load(Ordering::Relaxed),
+            self.send_errors.load(Ordering::Relaxed),
         )
     }
 }
@@ -88,7 +93,13 @@ pub fn send_loop(
                     stats.silent_packets.fetch_add(1, Ordering::Relaxed);
                 }
             }
-            Err(e) => log::warn!("paket gönderilemedi: {e}"),
+            Err(e) => {
+                let n = stats.send_errors.fetch_add(1, Ordering::Relaxed);
+                // Her paket için loglamak dosyayı boğuyor; seyrelt.
+                if n == 0 || n % 200 == 0 {
+                    log::warn!("could not send packet ({n} so far): {e}");
+                }
+            }
         }
 
         seq = seq.wrapping_add(1);
