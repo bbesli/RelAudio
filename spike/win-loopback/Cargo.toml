@@ -1,0 +1,13 @@
+[package]
+name = "win-loopback"
+version = "0.1.0"
+edition = "2021"
+
+# Adım 1b spike — ATILACAK KOD.
+# Windows WASAPI loopback yakalamayı doğrular ve UDP'ye yollar.
+
+[dependencies]
+wasapi = "0.24"
+
+[profile.release]
+opt-level = 2

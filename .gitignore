@@ -1,0 +1,33 @@
+# Rust
+/target/
+**/target/
+Cargo.lock.bak
+
+# Node / frontend
+node_modules/
+dist/
+.svelte-kit/
+*.tsbuildinfo
+
+# Tauri
+app/src-tauri/target/
+app/src-tauri/gen/
+
+# Spike (atılacak kod — Adım 1)
+/spike/out/
+*.raw
+*.wav
+
+# Editör / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Yerel ayarlar
+.env
+.env.local
+
+# Paketlenmiş çıktılar ve loglar
+/release/
+*.log

@@ -1,0 +1,14 @@
+[package]
+name = "relaudio-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "relaudio"
+path = "src/main.rs"
+
+[dependencies]
+relaudio-core.workspace = true
+relaudio-proto.workspace = true
+log.workspace = true
+env_logger.workspace = true
