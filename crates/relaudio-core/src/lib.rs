@@ -4,7 +4,9 @@
 //! süreçte çalışacak şekilde tasarlanmıştır (docs/adr/0002).
 
 pub mod audio;
+pub mod config;
 pub mod error;
 pub mod net;
 
+pub use config::Config;
 pub use error::{Error, Result};

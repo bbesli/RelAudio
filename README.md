@@ -1,86 +1,245 @@
 # RelAudio
 
-Yerel ağ (LAN) üzerinden bilgisayarlar arasında **düşük gecikmeli ses aktarımı** yapan
-bir masaüstü uygulaması. Hedef platformlar: **Windows ve Linux.**
-macOS ertelendi (bkz. [docs/00-genel-bakis.md](docs/00-genel-bakis.md)).
+Send audio between computers over your local network — system audio or a
+microphone, in either direction, with low latency.
 
-> **Durum: Uygulama çalışıyor.** Arayüz (Tauri + Svelte) ve çekirdek hazır;
-> iki makine arasında sistem sesi ve mikrofon aktarılabiliyor, tepsi/arka plan
-> davranışı yerinde.
-> Kurulum ve kullanım: [docs/11-calistirma.md](docs/11-calistirma.md).
-> Ölçüm sonuçları ve bilinen sınırlar: [docs/10-riskler.md](docs/10-riskler.md).
+**Windows and Linux.** Free and open source (MIT).
+
+*[Türkçe README](README.tr.md)*
 
 ---
 
-## Ne yapacak?
+## What it does
 
-İki temel rol var; her cihaz aynı anda ikisini birden üstlenebilir:
-
-| Rol | Açıklama |
+| | |
 |---|---|
-| **Server (gönderici)** | Bu bilgisayarda çalan sesi (system audio / loopback) veya bir mikrofonun girişini ağdaki başka cihaza yollar. |
-| **Player (alıcı)** | Ağdaki başka bir cihazın sesini bu bilgisayarda çalar veya o cihazı sanal mikrofon olarak sisteme tanıtır. |
+| **Send system audio** | Play your PC's sound on another computer's speakers |
+| **Send microphone** | Stream a mic from one machine to another |
+| **Listen** | Hear the incoming audio on this computer's speakers |
+| **Use as microphone** | Make a remote mic appear as a microphone to Discord, Zoom, OBS… |
 
-Dört senaryo:
+Devices find each other automatically on the LAN — no IP addresses to type.
+The app lives in the system tray and keeps streaming when you close the window.
+Interface available in 10 languages.
 
-1. **Send audio** — PC'nin sesini başka cihazın hoparlöründen dinle.
-2. **Send mic input** — PC'ye bağlı mikrofonu ağa yolla.
-3. **Receive audio** — Başka cihazın sesini bu PC'de çal.
-4. **Receive mic input** — Başka cihazı bu PC'de sanal mikrofon olarak kullan.
-
-Ek gereksinimler:
-
-- **Arka planda çalışma.** Pencere kapatılınca uygulama sonlanmaz; sistem tepsisi /
-  menü çubuğu simgesinden geri açılır. (Discord davranışı.)
-- **Otomatik keşif.** Aynı ağdaki cihazlar listede kendiliğinden görünür; IP ile
-  manuel bağlanma da mümkün.
-- **Düşük gecikme.** Hedef uçtan uca 40–80 ms (LAN, kablolu/iyi Wi-Fi).
+**Measured latency: 12–21 ms** end to end on a wired LAN, depending on your
+audio device's buffer settings. See [docs/10-riskler.md](docs/10-riskler.md)
+for the measurements.
 
 ---
 
-## Kısa cevap: Electron ile yazılır mı?
+## Install
 
-**Kısmen.** Arayüzü Electron ile yazabilirsin, ama **ses motorunu JavaScript'te
-yazamazsın.** Node.js'in ses donanımına erişimi yok; Web Audio API ise sistem sesini
-(loopback) güvenilir biçimde yakalayamaz ve GC duraklamaları nedeniyle gerçek zamanlı
-ses için uygun değil.
+### Linux
 
-Dolayısıyla mimari her hâlükârda iki katmanlı olmak zorunda:
+Needs `rustup`, Node.js, and PulseAudio/PipeWire development headers.
 
-```
-[ Arayüz: web teknolojileri ]  ←→  [ Ses + ağ motoru: native kod (Rust/C++) ]
-                                          ↓
-                        [ Sanal ses aygıtı — Linux: kendi PipeWire node'umuz,
-                          Windows: üçüncü taraf sürücü ]
+```bash
+# Arch / CachyOS
+sudo pacman -S --needed rustup nodejs npm libpulse webkit2gtk-4.1 libayatana-appindicator
+rustup default stable
+
+# Debian / Ubuntu
+sudo apt install build-essential curl libpulse-dev libwebkit2gtk-4.1-dev \
+                 libayatana-appindicator3-dev librsvg2-dev nodejs npm
+
+# Fedora
+sudo dnf install pulseaudio-libs-devel webkit2gtk4.1-devel \
+                 libappindicator-gtk3-devel librsvg2-devel nodejs
 ```
 
-**Önerilen yığın: Tauri v2 + Rust çekirdek.** Gerekçe ve alternatiflerin karşılaştırması
-[docs/01-teknoloji-secimi.md](docs/01-teknoloji-secimi.md) içinde. Electron + Rust
-sidecar da geçerli bir alternatif; ekip JS ağırlıklıysa o tercih edilebilir.
+Then build and install:
+
+```bash
+git clone https://github.com/bbesli/RelAudio.git
+cd RelAudio/app && npm install && npx tauri build --no-bundle
+cd .. && ./scripts/install-linux.sh
+```
+
+This installs to `~/.local/bin/relaudio` and adds a **RelAudio** entry to your
+application menu. No root needed. Remove it with `./scripts/uninstall-linux.sh`.
+
+> If `relaudio` isn't found in your shell, `~/.local/bin` isn't on your `PATH`.
+> Either launch it from the application menu or add:
+> `echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc`
+
+`.deb` and `.rpm` packages can be built with `npx tauri build` (AppImage
+generation currently fails — see [Known limits](#known-limits)).
+
+### Windows
+
+You need:
+
+1. **[Rust](https://rustup.rs)** — run `rustup-init.exe`, choose the standard
+   installation.
+2. **Visual C++ Build Tools** with the Windows SDK. If `rustup` doesn't offer
+   to install them:
+   ```
+   winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+   ```
+   The `--add ...VCTools` part matters — without it you get Build Tools with no
+   C++ compiler and the build fails with `link.exe not found`.
+3. **[Node.js](https://nodejs.org)**
+
+Then:
+
+```
+git clone https://github.com/bbesli/RelAudio.git
+cd RelAudio
+powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
+```
+
+The script checks prerequisites, loads the Visual Studio environment (including
+preview/Insiders editions, which Rust can't find on its own), installs npm
+dependencies and builds. Output:
+`app\src-tauri\target\release\relaudio-app.exe`
+
+**Firewall:** the first time you receive audio, Windows will ask to allow the
+app. Say yes for private networks. To add the rule manually, in an
+administrator PowerShell:
+
+```
+New-NetFirewallRule -DisplayName "RelAudio UDP 59101" -Direction Inbound -Protocol UDP -LocalPort 59101 -Action Allow
+```
 
 ---
 
-## Dokümantasyon
+## Using it
 
-| Doküman | İçerik |
+Open RelAudio on both computers. Each one starts listening automatically and
+announces itself on the network.
+
+### Play one computer's sound on another
+
+1. **Receiving machine** — *Player* tab, **Listen on speakers**, pick your
+   speakers as the output device.
+2. **Sending machine** — *Server* tab, **System audio**, pick the receiving
+   machine from the **Target device** list, press **Start streaming**.
+
+On Linux, "system audio" means the *monitor* of an output device. The default
+is usually right; if you hear nothing, check which output your media player is
+actually using (`pactl list sink-inputs`).
+
+### Send a microphone
+
+Same as above, but choose **Microphone** on the sending machine and pick the
+mic in the right-hand panel.
+
+### Use a remote microphone as a local microphone
+
+This is the one that needs a little setup. Windows and Linux have no built-in
+way for an application to *become* a microphone, so you need a **virtual audio
+cable**: a driver with a speaker end and a microphone end. Whatever is written
+to the speaker end comes out of the microphone end.
+
+**Install a virtual cable:**
+
+| Platform | What to install |
 |---|---|
-| [00-genel-bakis.md](docs/00-genel-bakis.md) | Ürün kapsamı, kullanıcı senaryoları, kapsam dışı bırakılanlar |
-| [01-teknoloji-secimi.md](docs/01-teknoloji-secimi.md) | Electron / Tauri / Qt / Flutter karşılaştırması ve karar |
-| [02-mimari.md](docs/02-mimari.md) | Süreç modeli, katmanlar, IPC, modül sınırları |
-| [03-ses-hatti.md](docs/03-ses-hatti.md) | Yakalama ve çalma API'leri, platform bazında; gecikme bütçesi |
-| [04-sanal-ses-aygitlari.md](docs/04-sanal-ses-aygitlari.md) | Sanal sürücü ihtiyacı, üçüncü taraf lisanslama, imzalama gerçekleri |
-| [05-ag-protokolu.md](docs/05-ag-protokolu.md) | Keşif, kontrol kanalı, ses taşıma, jitter buffer, saat kayması |
-| [06-arkaplan-ve-tepsi.md](docs/06-arkaplan-ve-tepsi.md) | **Tray / arka plan davranışı — platform bazında, kod örnekleriyle** |
-| [07-arayuz.md](docs/07-arayuz.md) | Ekran yapısı, durum modeli, tasarım notları |
-| [08-derleme-ve-paketleme.md](docs/08-derleme-ve-paketleme.md) | Build, imzalama, notarization, dağıtım, güncelleme |
-| [09-yol-haritasi.md](docs/09-yol-haritasi.md) | Fazlar, her fazın çıktısı ve kabul kriterleri |
-| [10-riskler.md](docs/10-riskler.md) | Riskler, **ölçüm sonuçları**, karar bekleyen konular |
-| [11-calistirma.md](docs/11-calistirma.md) | **Kurulum, derleme, kullanım, sağlıklı çıktı nasıl görünür** |
-| [adr/](docs/adr/) | Mimari karar kayıtları (ADR) |
+| **Windows** | [VB-CABLE](https://vb-audio.com/Cable/) — free (donationware). Extract the ZIP, run `VBCABLE_Setup_x64.exe` **as administrator**, then reboot. |
+| **Linux** | Nothing to install — create one with:<br>`pactl load-module module-null-sink sink_name=relaudio media.class=Audio/Sink sink_properties=device.description=RelAudio-Cable` |
+
+**Then:**
+
+1. **Receiving machine** — *Player* tab, **Use as microphone**. The device list
+   filters itself down to virtual cables. Pick the **speaker end**
+   (`CABLE Input` on Windows). A green box tells you which microphone to select
+   in other apps.
+2. **Sending machine** — *Server* tab, **Microphone**, pick the receiver as
+   target, start streaming.
+3. **In Discord / Zoom / OBS** — choose the **microphone end**
+   (`CABLE Output` on Windows) as your microphone.
+
+> **Do not change your system's default output device to the cable.** Only
+> RelAudio should write to it. If you set Windows' default output to
+> `CABLE Input`, everything your computer plays also goes into the microphone —
+> and you'll hear yourself.
+
+> **If you hear your own voice:** open Windows Sound settings → Recording →
+> `CABLE Output` → Properties → **Listen** tab → uncheck *"Listen to this
+> device"*.
 
 ---
 
-## Lisans ve isimlendirme notu
+## Troubleshooting
 
-"AudioRelay" üçüncü taraf bir ürünün adıdır. Bu proje bağımsızdır; ismi, ikonu veya
-protokolü ile uyumluluk iddiası taşımaz. Protokol sıfırdan tasarlanır.
+| Symptom | Cause and fix |
+|---|---|
+| **Packets counter stays at 0** | Wrong target address, or a firewall. The Player tab shows this machine's address — make sure the sender is pointed at it. |
+| **Packets arrive but no sound** | Wrong output device. Change it in the right-hand panel; the stream restarts automatically. Use `relaudio tone` to test the output on its own. |
+| **You hear your own voice** | Something is monitoring the cable. See the two notes above. |
+| **App won't open, nothing happens** | It's already running — look in the system tray. RelAudio allows only one instance. |
+| **No tray icon on GNOME** | GNOME has no tray by default. Install the *AppIndicator and KStatusNotifierItem Support* extension. Without a tray, RelAudio disables "minimize to tray" so the app can't become unreachable. |
+| **Buffer grows over time** | Clock drift between the two machines. There's no compensation yet; restart the stream. |
+| **Something else** | Check the log: `%LOCALAPPDATA%\RelAudio\relaudio.log` (Windows) or `~/.local/state/RelAudio/relaudio.log` (Linux). The Settings tab shows the exact path. |
+
+### Diagnostic commands
+
+A command-line tool is built alongside the app:
+
+```bash
+relaudio devices                  # list devices with their IDs
+relaudio tone                     # play a test tone — checks output, no network
+relaudio level --mic --device ID  # live input level meter
+relaudio send 192.168.1.10        # stream without the GUI
+relaudio recv                     # receive without the GUI
+```
+
+`relaudio level` is the fastest way to find which link in the chain is broken:
+point it at the cable's microphone end and see whether audio actually arrives.
+
+---
+
+## Known limits
+
+- **No clock drift compensation.** The two machines' sound cards don't run at
+  exactly the same rate. Over long sessions the buffer creeps and the "dropped"
+  counter grows. A cap keeps latency bounded; adaptive resampling is planned.
+- **PCM only.** ~1.5 Mbit/s, though silent blocks are sent without payload so
+  quiet passages cost almost nothing. Opus is planned.
+- **Not encrypted.** Use it on networks you trust.
+- **No packet loss concealment.** Lost packets become short silences.
+- **macOS is not supported** — deliberately deferred, see
+  [docs/00-genel-bakis.md](docs/00-genel-bakis.md).
+- **AppImage build fails** (`linuxdeploy` error). `.deb` and `.rpm` work.
+
+---
+
+## How it works
+
+```
+capture ──► packetize ──► UDP ──► jitter buffer ──► playback
+(WASAPI / PulseAudio)     5 ms                     (WASAPI / PulseAudio)
+```
+
+- **UI:** Tauri v2 + Svelte 5 — ~11 MB binary, uses the OS webview
+- **Core:** Rust. Audio and network run on dedicated threads
+- **Linux backend:** PulseAudio API (PipeWire provides it natively)
+- **Windows backend:** WASAPI, loopback via a render device opened for capture
+- **Discovery:** mDNS (`_relaudio._udp`)
+
+Design notes, measurements and decision records are in [docs/](docs/) —
+written in Turkish. Architecture: [docs/02-mimari.md](docs/02-mimari.md).
+Decision records: [docs/adr/](docs/adr/).
+
+### Building and testing
+
+```bash
+cargo test                                    # core tests
+cd app/src-tauri && cargo test                # session layer tests
+cargo check --target x86_64-pc-windows-msvc   # type-check Windows code on Linux
+node scripts/check-i18n.mjs                   # translation completeness
+```
+
+That third one matters: Windows-specific code is `cfg`-gated out of normal
+Linux builds, so it's never checked unless you ask for it.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+## Support
+
+If RelAudio is useful to you: [buymeacoffee.com/bbesli](https://buymeacoffee.com/bbesli)

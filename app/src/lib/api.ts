@@ -26,6 +26,7 @@ export interface Stats {
   player_underruns: number;
   player_dropped: number;
   player_buffer_ms: number;
+  player_peak: number;
 
   last_error: string | null;
 }
@@ -63,6 +64,25 @@ export interface MicHint {
 }
 
 export const getMicHint = (output_id: string) => invoke<MicHint>("mic_hint", { outputId: output_id });
+
+export interface Config {
+  language: string;
+  minimize_to_tray: boolean;
+  auto_listen: boolean;
+  player_mode: string;
+  player_port: number;
+  player_device: string;
+  player_buffer: number;
+  server_source: string;
+  server_device_monitor: string;
+  server_device_input: string;
+  server_target: string;
+}
+
+export const getConfig = () => invoke<Config>("get_config");
+export const setConfig = (config: Config) => invoke<void>("set_config", { config });
+export const getConfigPath = () => invoke<string>("config_path");
+export const getLogPath = () => invoke<string>("log_file");
 export const getDeviceName = () => invoke<string>("device_name");
 
 export const setMinimizeToTray = (enabled: boolean) =>

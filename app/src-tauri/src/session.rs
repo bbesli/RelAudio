@@ -219,6 +219,7 @@ impl PlayerSession {
             out.player_underruns = s.underruns.load(Ordering::Relaxed);
             out.player_dropped = s.dropped.load(Ordering::Relaxed);
             out.player_buffer_ms = s.buffer_depth.load(Ordering::Relaxed) * 5;
+            out.player_peak = s.peak.load(Ordering::Relaxed);
         }
         if let Some(e) = self.error.lock().unwrap().take() {
             out.last_error = Some(e);

@@ -25,6 +25,9 @@ pub struct ReceiverStats {
     pub buffer_depth: AtomicU64,
     /// Tampon tavanı aşıldığı için atılanlar (gecikme birikimi göstergesi).
     pub dropped: AtomicU64,
+    /// Çalınan sesin son tepe değeri (0–32767). Arayüzdeki seviye çubuğu için:
+    /// "paket geliyor ama ses sessiz" durumunu paket sayacı gösteremiyor.
+    pub peak: AtomicU64,
 }
 
 /// `port`'u dinler ve `device_id` aygıtında çalar.
@@ -84,6 +87,15 @@ pub fn receive_loop(
 
     // Çalma döngüsü (bu thread)
     let silence = vec![0u8; PCM_PAYLOAD_LEN];
+
+    /// Bir blokun tepe genliği. Ses yolunda değil, çalma öncesi tek geçiş.
+    fn block_peak(buf: &[u8]) -> u64 {
+        buf.chunks_exact(2)
+            .map(|c| i16::from_le_bytes([c[0], c[1]]).unsigned_abs() as u64)
+            .max()
+            .unwrap_or(0)
+    }
+
     while !stop.stopped() {
         let block = {
             let mut j = jitter.lock().unwrap();
@@ -95,9 +107,15 @@ pub fn receive_loop(
             j.pop()
         };
         match block {
-            Some(Some(p)) if !p.is_empty() => out.write(&p)?,
+            Some(Some(p)) if !p.is_empty() => {
+                stats.peak.store(block_peak(&p), Ordering::Relaxed);
+                out.write(&p)?
+            }
             // Kayıp paket veya sessizlik bayraklı paket. PLC v1'de yok.
-            Some(Some(_)) | Some(None) => out.write(&silence)?,
+            Some(Some(_)) | Some(None) => {
+                stats.peak.store(0, Ordering::Relaxed);
+                out.write(&silence)?
+            }
             None => {
                 // Tampon hedefe ulaşmadı. Sessizlik yazmaya devam et — ses
                 // saatini beslemezsek çalma akışının kendisi underrun verir.

@@ -83,7 +83,7 @@ Bunlar cevaplandıkça bu dosya güncellenir ve gerekirse `adr/` altına kayıt 
 | 3 | Cihaz adı çakışmasında ne olacak (aynı ağda iki "Linux")? | Düşük |
 | 4 | Windows'ta sessizlik anında loopback davranışı sürüme göre değişiyor mu? | Orta — Faz 0'da ölçülmeli |
 | 5 | Mobil istemci gerçekten kapsam dışı mı, yoksa protokol baştan ona göre mi tasarlanmalı? | Yüksek — protokolü etkiler |
-| 6 | Lisans ne olacak (GPL / MIT / kapalı)? | **Yüksek** — sürücü OEM lisansı açık kaynak dağıtımla uyumsuz olabilir |
+| 6 | ~~Lisans ne olacak?~~ **MIT** ([ADR-0006](adr/0006-mit-lisansi.md)) | Kapandı |
 | 9 | ~~Windows sürücü lisansı hangi satıcıdan?~~ **Karar: VB-Audio, paketimize gömülü** | Kapandı |
 | 10 | VB-Audio'ya yapılacak bağış tutarı ne olsun? (500–2000 USD öneriliyor) | Düşük — çıkış öncesi |
 | 7 | Aygıt hot-plug sırasında oturum korunacak mı, düşürülecek mi? | Düşük |

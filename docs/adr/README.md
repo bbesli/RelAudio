@@ -35,3 +35,4 @@ Neden diğerleri seçilmedi?
 | [0003](0003-v1de-kendi-surucumuz-yok.md) | Kendi sürücümüzü yazmıyoruz, üçüncü tarafı lisanslıyoruz | Kabul edildi |
 | [0004](0004-linux-pulse-api.md) | Linux'ta PipeWire API'si değil, PulseAudio API'si | Kabul edildi |
 | [0005](0005-cekirdek-tauri-icinde.md) | Çekirdek ayrı süreç değil, Tauri sürecinde | Kabul edildi |
+| [0006](0006-mit-lisansi.md) | MIT lisansı | Kabul edildi |

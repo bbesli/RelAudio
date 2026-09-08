@@ -12,6 +12,7 @@ use tauri::{Manager, WindowEvent};
 
 use relaudio_core::audio::{self, DeviceKind};
 use relaudio_core::net::Discovery;
+use relaudio_core::Config;
 use session::{PlayerSession, ServerSession};
 use std::sync::Mutex;
 
@@ -26,6 +27,8 @@ pub struct AppState {
     pub is_quitting: AtomicBool,
     /// Kapatma düğmesi tepsiye küçültsün mü? Tepsi yaratılamazsa kapatılır.
     pub minimize_to_tray: AtomicBool,
+    /// Diskte saklanan kullanıcı ayarları.
+    pub config: Mutex<Config>,
 }
 
 impl Default for AppState {
@@ -36,6 +39,7 @@ impl Default for AppState {
             discovery: Mutex::new(None),
             is_quitting: AtomicBool::new(false),
             minimize_to_tray: AtomicBool::new(true),
+            config: Mutex::new(Config::default()),
         }
     }
 }
@@ -79,6 +83,8 @@ pub struct StatsDto {
     pub player_underruns: u64,
     pub player_dropped: u64,
     pub player_buffer_ms: u64,
+    /// Çalınan sesin tepe genliği (0–32767). Seviye çubuğu için.
+    pub player_peak: u64,
 
     /// Kullanıcıya gösterilecek son hata; okununca temizlenir.
     pub last_error: Option<String>,
@@ -240,6 +246,30 @@ fn local_address() -> Option<String> {
 #[tauri::command]
 fn set_minimize_to_tray(state: tauri::State<'_, AppState>, enabled: bool) {
     state.minimize_to_tray.store(enabled, Ordering::Relaxed);
+    let mut c = state.config.lock().unwrap();
+    c.minimize_to_tray = enabled;
+    c.save();
+}
+
+/// Kayıtlı ayarları döndürür.
+#[tauri::command]
+fn get_config(state: tauri::State<'_, AppState>) -> Config {
+    state.config.lock().unwrap().clone()
+}
+
+/// Ayarları kaydeder. Arayüz her anlamlı değişiklikte çağırıyor;
+/// kullanıcı aynı seçimleri her açılışta tekrar yapmasın.
+#[tauri::command]
+fn set_config(state: tauri::State<'_, AppState>, config: Config) {
+    state.minimize_to_tray.store(config.minimize_to_tray, Ordering::Relaxed);
+    config.save();
+    *state.config.lock().unwrap() = config;
+}
+
+/// Ayar ve log dosyalarının bulunduğu klasör — kullanıcıya göstermek için.
+#[tauri::command]
+fn config_path() -> String {
+    relaudio_core::config::config_path().display().to_string()
 }
 
 /// Log dosyasının yeri. Pencereli uygulamada `stderr` kaybolduğu için
@@ -293,6 +323,7 @@ pub fn run() {
     init_logging();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             // İkinci örnek: yeni pencere açma, mevcut olanı öne getir (docs/06).
             show_main(app);
@@ -302,8 +333,21 @@ pub fn run() {
             log::info!("setup başladı");
             let state = app.state::<AppState>();
 
+            let cfg = Config::load();
+            log::info!("ayarlar yüklendi: dil='{}', mod='{}'", cfg.language, cfg.player_mode);
+            state
+                .minimize_to_tray
+                .store(cfg.minimize_to_tray, Ordering::Relaxed);
+            let (auto_listen, port, device, buffer) = (
+                cfg.auto_listen,
+                cfg.player_port,
+                cfg.player_device.clone(),
+                cfg.player_buffer,
+            );
+            *state.config.lock().unwrap() = cfg;
+
             // Keşfi hemen başlat: kullanıcı IP yazmak zorunda kalmasın.
-            match Discovery::start(DEFAULT_PORT) {
+            match Discovery::start(port) {
                 Ok(d) => *state.discovery.lock().unwrap() = Some(d),
                 Err(e) => log::warn!("ağ keşfi başlatılamadı: {e} — IP elle girilebilir"),
             }
@@ -311,12 +355,14 @@ pub fn run() {
             // Oynatıcıyı otomatik başlat: uygulama açık olduğu sürece ses
             // alabilir durumda olsun. Aygıt yoksa sessizce geç — kullanıcı
             // Oynatıcı sekmesinden elle başlatabilir.
-            match state.player.start(DEFAULT_PORT, "", 8) {
-                Ok(()) => {
-                    log::info!("oynatıcı otomatik başladı — port {DEFAULT_PORT}");
-                    announce(&state, true);
+            if auto_listen {
+                match state.player.start(port, &device, buffer) {
+                    Ok(()) => {
+                        log::info!("oynatıcı otomatik başladı — port {port}");
+                        announce(&state, true);
+                    }
+                    Err(e) => log::warn!("oynatıcı otomatik başlatılamadı: {e}"),
                 }
-                Err(e) => log::warn!("oynatıcı otomatik başlatılamadı: {e}"),
             }
 
             let tray_ok = tray::build(app.handle()).is_ok();
@@ -348,6 +394,9 @@ pub fn run() {
             device_name,
             log_file,
             mic_hint,
+            get_config,
+            set_config,
+            config_path,
             start_server,
             stop_server,
             start_player,

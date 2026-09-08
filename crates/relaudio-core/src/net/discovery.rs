@@ -88,7 +88,16 @@ impl Discovery {
                             if inst == own {
                                 continue;
                             }
-                            let Some(addr) = info.get_addresses().iter().next().cloned() else {
+                            // IPv4 tercih et. mDNS hem IPv4 hem IPv6 döndürüyor;
+                            // ilkini almak link-local IPv6 seçmeye yol açıyordu
+                            // ve kullanıcıya anlamsız bir adres gösteriyordu.
+                            let addrs = info.get_addresses();
+                            let Some(addr) = addrs
+                                .iter()
+                                .find(|a| a.to_ip_addr().is_ipv4())
+                                .or_else(|| addrs.iter().next())
+                                .cloned()
+                            else {
                                 continue;
                             };
                             let get = |k: &str| {
