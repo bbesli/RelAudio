@@ -358,7 +358,8 @@
           <input type="checkbox" checked={cfg.minimize_to_tray}
                  onchange={(e) => {
                    const on = e.currentTarget.checked;
-                   persist({ minimize_to_tray: on }); setMinimizeToTray(on);
+                   persist({ minimize_to_tray: on });
+                   setMinimizeToTray(on).catch((err) => (error = String(err)));
                  }} />
           <div><strong>{t("settings.tray")}</strong><span>{t("settings.trayDesc")}</span></div>
         </label>
@@ -382,7 +383,8 @@
         </div>
 
         <BuyMeCoffee label={t("settings.coffee")} title={t("settings.support")}
-                     body={t("settings.supportBody")} />
+                     body={t("settings.supportBody")}
+                     failedText={t("settings.coffeeFailed")} />
       </section>
     {/if}
   </main>

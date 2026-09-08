@@ -29,6 +29,7 @@ export const LOCALES: Locale[] = [
 type Dict = Record<string, string>;
 
 const tr: Dict = {
+  "settings.coffeeFailed": "Tarayıcı açılamadı. Adresi elle açabilirsin:",
   "player.dontChangeDefault": "Windows'un sistem çıkışını bu kabloya çevirme — sadece RelAudio ona yazmalı. Çevirirsen bilgisayarının tüm sesi de mikrofona karışır.",
   "nav.server": "Sunucu",
   "nav.player": "Oynatıcı",
@@ -126,6 +127,7 @@ const tr: Dict = {
 };
 
 const en: Dict = {
+  "settings.coffeeFailed": "Couldn't open your browser. You can open the address manually:",
   "player.dontChangeDefault": "Don't set your system's default output to this cable — only RelAudio should write to it. Otherwise everything your computer plays also goes into the microphone.",
   "nav.server": "Server",
   "nav.player": "Player",
@@ -223,6 +225,7 @@ const en: Dict = {
 };
 
 const es: Dict = {
+  "settings.coffeeFailed": "No se pudo abrir el navegador. Puedes abrir la dirección manualmente:",
   "player.dontChangeDefault": "No pongas la salida predeterminada del sistema en este cable: solo RelAudio debe escribir en él. Si lo haces, todo el sonido del equipo entrará también en el micrófono.",
   "nav.server": "Servidor", "nav.player": "Reproductor", "nav.settings": "Ajustes",
   "status.live": "En directo", "status.idle": "Inactivo",
@@ -287,6 +290,7 @@ const es: Dict = {
 };
 
 const de: Dict = {
+  "settings.coffeeFailed": "Der Browser konnte nicht geöffnet werden. Du kannst die Adresse manuell öffnen:",
   "player.dontChangeDefault": "Stelle die Standardausgabe des Systems nicht auf dieses Kabel — nur RelAudio soll darauf schreiben. Sonst landet auch der gesamte Computerton im Mikrofon.",
   "nav.server": "Server", "nav.player": "Player", "nav.settings": "Einstellungen",
   "status.live": "Aktiv", "status.idle": "Bereit",
@@ -349,6 +353,7 @@ const de: Dict = {
 };
 
 const fr: Dict = {
+  "settings.coffeeFailed": "Impossible d'ouvrir le navigateur. Vous pouvez ouvrir l'adresse manuellement :",
   "player.dontChangeDefault": "Ne définissez pas la sortie par défaut du système sur ce câble : seul RelAudio doit y écrire. Sinon tout le son de l'ordinateur passe aussi dans le microphone.",
   "nav.server": "Serveur", "nav.player": "Lecteur", "nav.settings": "Paramètres",
   "status.live": "En cours", "status.idle": "Inactif",
@@ -411,6 +416,7 @@ const fr: Dict = {
 };
 
 const pt: Dict = {
+  "settings.coffeeFailed": "Não foi possível abrir o navegador. Pode abrir o endereço manualmente:",
   "player.dontChangeDefault": "Não defina a saída predefinida do sistema para este cabo — só o RelAudio deve escrever nele. Caso contrário todo o som do computador entra também no microfone.",
   "nav.server": "Servidor", "nav.player": "Reprodutor", "nav.settings": "Definições",
   "status.live": "Ao vivo", "status.idle": "Parado",
@@ -473,6 +479,7 @@ const pt: Dict = {
 };
 
 const ru: Dict = {
+  "settings.coffeeFailed": "Не удалось открыть браузер. Можно открыть адрес вручную:",
   "player.dontChangeDefault": "Не назначайте этот кабель устройством вывода по умолчанию — писать в него должен только RelAudio. Иначе весь звук компьютера тоже попадёт в микрофон.",
   "nav.server": "Сервер", "nav.player": "Плеер", "nav.settings": "Настройки",
   "status.live": "В эфире", "status.idle": "Ожидание",
@@ -535,6 +542,7 @@ const ru: Dict = {
 };
 
 const zh: Dict = {
+  "settings.coffeeFailed": "无法打开浏览器。你可以手动打开这个地址：",
   "player.dontChangeDefault": "不要把系统默认输出设备设为这个虚拟声卡——只应由 RelAudio 写入。否则电脑播放的所有声音也会进入麦克风。",
   "nav.server": "发送端", "nav.player": "接收端", "nav.settings": "设置",
   "status.live": "传输中", "status.idle": "空闲",
@@ -589,6 +597,7 @@ const zh: Dict = {
 };
 
 const hi: Dict = {
+  "settings.coffeeFailed": "ब्राउज़र नहीं खुल सका। आप पता खुद खोल सकते हैं:",
   "player.dontChangeDefault": "सिस्टम का डिफ़ॉल्ट आउटपुट इस केबल पर सेट न करें — इसमें सिर्फ़ RelAudio को लिखना चाहिए। वरना कंप्यूटर की सारी आवाज़ भी माइक्रोफ़ोन में चली जाएगी।",
   "nav.server": "सर्वर", "nav.player": "प्लेयर", "nav.settings": "सेटिंग्स",
   "status.live": "चालू", "status.idle": "निष्क्रिय",
@@ -643,6 +652,7 @@ const hi: Dict = {
 };
 
 const ar: Dict = {
+  "settings.coffeeFailed": "تعذّر فتح المتصفح. يمكنك فتح العنوان يدويًا:",
   "player.dontChangeDefault": "لا تجعل مخرج النظام الافتراضي هذا الكابل — يجب أن يكتب فيه RelAudio وحده. وإلا فسيدخل كل صوت الحاسوب إلى الميكروفون أيضًا.",
   "nav.server": "الإرسال", "nav.player": "الاستقبال", "nav.settings": "الإعدادات",
   "status.live": "قيد البث", "status.idle": "خامل",
