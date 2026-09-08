@@ -351,7 +351,12 @@
               <li><strong class="pick">{t("player.micStep2", { device: micHint.paired_input })}</strong></li>
             </ol>
             <p class="aside-note">{t("player.micNotHere")}</p>
-            <p class="warn-line">{t("player.dontChangeDefault")}</p>
+            {#if devices.find((d) => d.id === cfg.player_device)?.is_default}
+              <p class="warn-line">{t("player.cableIsDefault")}</p>
+            {:else}
+              <p class="warn-line">{t("player.dontChangeDefault")}</p>
+            {/if}
+            <p class="aside-note">{t("player.listenTabHint")}</p>
           </div>
         {:else if cfg.player_mode === "mic" && micHint && !micHint.any_virtual}
           <div class="mic-info">

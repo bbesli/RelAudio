@@ -8,6 +8,8 @@ export interface Device {
   kind: DeviceKind;
   is_default: boolean;
   virtual_cable: boolean;
+  /** Sanal kablolar arasında tercih sırası: 0 = kanonik stereo uç. */
+  rank: number;
 }
 
 export interface Stats {

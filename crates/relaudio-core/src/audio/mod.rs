@@ -143,8 +143,28 @@ pub fn paired_virtual_input(output_name: &str, devices: &[DeviceInfo]) -> Option
         .filter(|d| d.kind == DeviceKind::Input)
         .map(|d| (token_score(output_name, &d.name), d))
         .filter(|(score, _)| *score > 0)
-        .max_by_key(|(score, _)| *score)
+        // Eşit puanda kanonik (stereo) ucu seç.
+        .max_by_key(|(score, d)| (*score, u8::MAX - virtual_output_rank(&d.name)))
         .map(|(_, d)| d.name.clone())
+}
+
+/// Çok kanallı sanal kablo varyantlarını tanıyan desenler.
+///
+/// VB-CABLE "CABLE Input" (2 kanal) yanında "CABLE In 16ch" gibi çok kanallı
+/// uçlar da sunuyor. Bizim akışımız stereo; 16 kanallı uca yazmak eşleşen
+/// mikrofon ucuna düzgün ulaşmayabiliyor. Alfabetik sıralamada "cable in
+/// 16ch" < "cable input" olduğu için varsayılan seçim yanlış uca düşüyordu.
+const MULTICHANNEL_HINTS: &[&str] = &["16ch", "8ch", "6ch", " in 16", " out 16"];
+
+/// Sanal kablo uçlarını tercih sırasına göre puanlar; küçük olan önce gelir.
+/// Stereo/kanonik uç, çok kanallı varyantı yenmeli.
+pub fn virtual_output_rank(name: &str) -> u8 {
+    let n = name.to_lowercase();
+    if MULTICHANNEL_HINTS.iter().any(|h| n.contains(h)) {
+        1
+    } else {
+        0
+    }
 }
 
 /// Sistemde herhangi bir sanal kablo hoparlörü var mı?
@@ -203,6 +223,13 @@ mod tests {
     fn real_speakers_have_no_paired_microphone() {
         let d = real_windows_devices();
         assert_eq!(paired_virtual_input("Speakers (Realtek(R) Audio)", &d), None);
+    }
+
+    #[test]
+    fn prefers_the_stereo_cable_over_multichannel_variants() {
+        assert_eq!(virtual_output_rank("CABLE Input (VB-Audio Virtual Cable)"), 0);
+        assert_eq!(virtual_output_rank("CABLE In 16ch (VB-Audio Virtual Cable)"), 1);
+        assert_eq!(virtual_output_rank("Speakers (Realtek)"), 0);
     }
 
     #[test]

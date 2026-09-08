@@ -29,6 +29,8 @@ export const LOCALES: Locale[] = [
 type Dict = Record<string, string>;
 
 const tr: Dict = {
+  "player.cableIsDefault": "Bu kablo aynı zamanda sistemin **varsayılan çıkışı**. Windows'un tüm sesi de mikrofona karışıyor ve kendini duyuyorsun. Ses ayarlarından varsayılan çıkışı hoparlörüne geri al.",
+  "player.listenTabHint": "Hâlâ duyuyorsan: Ses ayarları → Kayıt → mikrofon ucu → Özellikler → **Dinle** sekmesi → \"Bu aygıtı dinle\" işaretini kaldır.",
   "tray.show": "Göster",
   "tray.stopAll": "Tüm yayınları durdur",
   "tray.quit": "Çıkış",
@@ -136,6 +138,8 @@ const tr: Dict = {
 };
 
 const en: Dict = {
+  "player.cableIsDefault": "This cable is also your **system default output**. Everything Windows plays is mixing into the microphone, which is why you hear yourself. Set your default output back to your speakers.",
+  "player.listenTabHint": "Still hearing yourself? Sound settings → Recording → the microphone end → Properties → **Listen** tab → uncheck \"Listen to this device\".",
   "tray.show": "Show",
   "tray.stopAll": "Stop all streams",
   "tray.quit": "Quit",
@@ -243,6 +247,8 @@ const en: Dict = {
 };
 
 const es: Dict = {
+  "player.cableIsDefault": "Este cable es además la **salida predeterminada del sistema**. Todo lo que reproduce Windows se mezcla en el micrófono, por eso te oyes. Vuelve a poner tus altavoces como salida predeterminada.",
+  "player.listenTabHint": "¿Sigues oyéndote? Configuración de sonido → Grabación → el extremo micrófono → Propiedades → pestaña **Escuchar** → desmarca \"Escuchar este dispositivo\".",
   "tray.show": "Mostrar",
   "tray.stopAll": "Detener todo",
   "tray.quit": "Salir",
@@ -317,6 +323,8 @@ const es: Dict = {
 };
 
 const de: Dict = {
+  "player.cableIsDefault": "Dieses Kabel ist zugleich die **Standardausgabe des Systems**. Alles, was Windows abspielt, mischt sich ins Mikrofon — deshalb hörst du dich selbst. Stelle die Standardausgabe wieder auf deine Lautsprecher.",
+  "player.listenTabHint": "Hörst du dich weiterhin? Sound-Einstellungen → Aufnahme → Mikrofonende → Eigenschaften → Reiter **Abhören** → \"Dieses Gerät abhören\" deaktivieren.",
   "tray.show": "Anzeigen",
   "tray.stopAll": "Alle Streams stoppen",
   "tray.quit": "Beenden",
@@ -389,6 +397,8 @@ const de: Dict = {
 };
 
 const fr: Dict = {
+  "player.cableIsDefault": "Ce câble est aussi la **sortie par défaut du système**. Tout ce que joue Windows se mélange au microphone, d'où l'écho. Remettez vos haut-parleurs en sortie par défaut.",
+  "player.listenTabHint": "Vous vous entendez encore ? Paramètres audio → Enregistrement → l'extrémité microphone → Propriétés → onglet **Écouter** → décochez \"Écouter ce périphérique\".",
   "tray.show": "Afficher",
   "tray.stopAll": "Tout arrêter",
   "tray.quit": "Quitter",
@@ -461,6 +471,8 @@ const fr: Dict = {
 };
 
 const pt: Dict = {
+  "player.cableIsDefault": "Este cabo é também a **saída predefinida do sistema**. Tudo o que o Windows reproduz mistura-se no microfone, por isso se ouve. Volte a definir as colunas como saída predefinida.",
+  "player.listenTabHint": "Continua a ouvir-se? Definições de som → Gravação → a ponta de microfone → Propriedades → separador **Ouvir** → desmarque \"Ouvir este dispositivo\".",
   "tray.show": "Mostrar",
   "tray.stopAll": "Parar tudo",
   "tray.quit": "Sair",
@@ -533,6 +545,8 @@ const pt: Dict = {
 };
 
 const ru: Dict = {
+  "player.cableIsDefault": "Этот кабель одновременно является **устройством вывода по умолчанию**. Всё, что играет Windows, подмешивается в микрофон — поэтому вы слышите себя. Верните динамики как устройство по умолчанию.",
+  "player.listenTabHint": "Всё ещё слышите себя? Параметры звука → Запись → конец-микрофон → Свойства → вкладка **Прослушать** → снимите «Прослушивать с данного устройства».",
   "tray.show": "Показать",
   "tray.stopAll": "Остановить всё",
   "tray.quit": "Выход",
@@ -605,6 +619,8 @@ const ru: Dict = {
 };
 
 const zh: Dict = {
+  "player.cableIsDefault": "这个虚拟声卡同时是**系统默认输出设备**。Windows 播放的一切都会混进麦克风，所以你会听到自己。请把默认输出改回扬声器。",
+  "player.listenTabHint": "仍然听到自己？声音设置 → 录制 → 麦克风端 → 属性 → **侦听**选项卡 → 取消勾选“侦听此设备”。",
   "tray.show": "显示",
   "tray.stopAll": "全部停止",
   "tray.quit": "退出",
@@ -669,6 +685,8 @@ const zh: Dict = {
 };
 
 const hi: Dict = {
+  "player.cableIsDefault": "यह केबल आपका **सिस्टम डिफ़ॉल्ट आउटपुट** भी है। Windows जो कुछ भी बजाता है वह माइक्रोफ़ोन में मिल रहा है, इसीलिए आप खुद को सुनते हैं। डिफ़ॉल्ट आउटपुट वापस स्पीकर पर करें।",
+  "player.listenTabHint": "अब भी खुद को सुन रहे हैं? ध्वनि सेटिंग्स → रिकॉर्डिंग → माइक्रोफ़ोन सिरा → गुण → **सुनें** टैब → \"इस डिवाइस को सुनें\" हटाएँ।",
   "tray.show": "दिखाएँ",
   "tray.stopAll": "सब रोकें",
   "tray.quit": "बाहर निकलें",
@@ -733,6 +751,8 @@ const hi: Dict = {
 };
 
 const ar: Dict = {
+  "player.cableIsDefault": "هذا الكابل هو أيضًا **مخرج النظام الافتراضي**. كل ما يشغّله Windows يختلط بالميكروفون، ولهذا تسمع صوتك. أعِد ضبط المخرج الافتراضي على السماعات.",
+  "player.listenTabHint": "ما زلت تسمع صوتك؟ إعدادات الصوت ← تسجيل ← طرف الميكروفون ← خصائص ← تبويب **الاستماع** ← أزل \"الاستماع إلى هذا الجهاز\".",
   "tray.show": "إظهار",
   "tray.stopAll": "إيقاف الكل",
   "tray.quit": "خروج",

@@ -28,14 +28,24 @@
     defaultText?: string;
   } = $props();
 
-  const options = $derived(devices.filter((d) => d.kind === kind));
+  // Tercih sırası: kanonik uç (rank 0) çok kanallı varyanttan (rank 1) önce.
+  // Alfabetik sırada "CABLE In 16ch" < "CABLE Input" olduğu için varsayılan
+  // seçim yanlış uca düşüyordu.
+  const options = $derived(
+    devices
+      .filter((d) => d.kind === kind)
+      .slice()
+      .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0))
+  );
 
   // Seçim boşsa ya da artık listede yoksa varsayılana düş — ama yalnızca
   // gerçekten değişiyorsa bildir, yoksa sonsuz döngü olur.
   $effect(() => {
     if (!options.length) return;
     if (value && options.some((d) => d.id === value)) return;
-    const fallback = (options.find((d) => d.is_default) ?? options[0]).id;
+    // Varsayılan aygıt ancak tercih edilen sıradaysa seçilsin.
+    const preferred = options.filter((d) => (d.rank ?? 0) === (options[0].rank ?? 0));
+    const fallback = (preferred.find((d) => d.is_default) ?? preferred[0]).id;
     if (fallback !== value) onselect(fallback);
   });
 </script>
