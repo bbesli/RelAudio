@@ -27,6 +27,12 @@ KULLANIM
       Çıkış aygıtına test tonu çalar. Ağı devre dışı bırakıp yalnızca
       çalma yolunu sınar. Ses duyulmuyorsa sorun ağda değil, çalmada.
 
+  relaudio level [--device <id>] [--mic]
+      Bir giriş aygıtındaki ses seviyesini canlı gösterir.
+      Zincirin neresinin koptuğunu bulmak için: sanal kablonun mikrofon
+      ucunu dinleyip sinyal gelip gelmediğini görürsün.
+      Varsayılan: sistem sesi (monitor). --mic ile mikrofon girişleri.
+
   relaudio recv [--port <n>] [--device <id>] [--buffer <paket>]
       Gelen sesi bu makinede çalar.
       --buffer: jitter buffer hedefi, paket cinsinden (1 paket = 5 ms).
@@ -70,6 +76,7 @@ fn main() {
         "send" => cmd_send(&args),
         "recv" => cmd_recv(&args),
         "tone" => cmd_tone(&args),
+        "level" => cmd_level(&args),
         "-h" | "--help" | "help" => usage(),
         other => {
             eprintln!("bilinmeyen komut: {other}\n");
@@ -105,6 +112,72 @@ fn cmd_devices() -> relaudio_core::Result<()> {
     }
     println!("\n(* = varsayılan)");
     Ok(())
+}
+
+/// Bir giriş aygıtındaki seviyeyi canlı gösterir.
+///
+/// "Ses geliyor mu?" sorusunu zincirin herhangi bir noktasında cevaplamak
+/// için. Sanal kablo senaryosunda kablonun mikrofon ucunu dinleyip
+/// gerçekten sinyal taşıyıp taşımadığını görmeyi sağlıyor.
+fn cmd_level(args: &[String]) -> relaudio_core::Result<()> {
+    use relaudio_proto::PCM_PAYLOAD_LEN;
+
+    let device = opt(args, "--device").unwrap_or_default();
+    let kind = if has(args, "--mic") { DeviceKind::Input } else { DeviceKind::Monitor };
+
+    println!("aygıt : {}", if device.is_empty() { "<varsayılan>" } else { &device });
+    println!("tür   : {}", if kind == DeviceKind::Input { "mikrofon" } else { "sistem sesi" });
+    println!("Ctrl+C ile çık.\n");
+
+    let mut cap = audio::open_capture(&device, kind)?;
+    let mut buf = vec![0u8; PCM_PAYLOAD_LEN];
+    let mut peak_hold: i32 = 0;
+    let mut silent_blocks: u64 = 0;
+    let mut total_blocks: u64 = 0;
+    // RMS de tepe gibi tüm pencere boyunca birikmeli; yalnızca son bloktan
+    // hesaplanırsa "tepe yüksek ama dB -99" gibi tutarsız satırlar çıkıyor.
+    let mut window_sq: f64 = 0.0;
+    let mut window_samples: u64 = 0;
+
+    loop {
+        cap.read(&mut buf)?;
+        total_blocks += 1;
+
+        let mut peak: i32 = 0;
+        let mut sum_sq: f64 = 0.0;
+        for c in buf.chunks_exact(2) {
+            let v = i16::from_le_bytes([c[0], c[1]]) as i32;
+            peak = peak.max(v.abs());
+            sum_sq += (v as f64) * (v as f64);
+        }
+        if peak < 32 {
+            silent_blocks += 1;
+        }
+        peak_hold = peak_hold.max(peak);
+        window_sq += sum_sq;
+        window_samples += (buf.len() / 2) as u64;
+
+        // 100 ms'de bir çiz (20 blok x 5 ms)
+        if total_blocks % 20 != 0 {
+            continue;
+        }
+        let rms = (window_sq / window_samples.max(1) as f64).sqrt();
+        let db = if rms > 1.0 { 20.0 * (rms / 32768.0).log10() } else { -99.0 };
+        let bars = ((peak_hold as f64 / 32768.0) * 40.0).round() as usize;
+        let meter: String = "█".repeat(bars.min(40)) + &"·".repeat(40 - bars.min(40));
+
+        print!(
+            "\r[{meter}] tepe {:>5}  {:>6.1} dB  sessiz %{:>3}",
+            peak_hold,
+            db,
+            silent_blocks * 100 / total_blocks
+        );
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        peak_hold = 0;
+        window_sq = 0.0;
+        window_samples = 0;
+    }
 }
 
 /// Ağdan bağımsız çalma testi. 440 Hz sinüs.

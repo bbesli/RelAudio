@@ -125,6 +125,27 @@ relaudio recv --port 59101 --device <id> --buffer 8
 `--buffer` jitter buffer hedefidir, paket cinsinden. 1 paket = 5 ms.
 Varsayılan 8 = 40 ms. Ağ kötüyse artır.
 
+## Zincirin neresi koptu? — teşhis araçları
+
+Ses akmadığında hangi halkanın koptuğunu bulmak için:
+
+```bash
+relaudio devices                       # aygıtlar ve id'leri
+relaudio tone   [--device <id>]        # çıkışa test tonu — ağdan bağımsız
+relaudio level  [--device <id>] [--mic] # bir girişteki seviyeyi canlı göster
+```
+
+**Sanal mikrofon senaryosunda** (uzak mikrofon → bu makinede mikrofon):
+
+```bash
+# 1. Kablonun mikrofon ucunu dinle
+relaudio level --mic --device "<CABLE Output id>"
+```
+
+Karşı taraf yayına başlayınca çubuk hareket etmeli. Ediyorsa kablo çalışıyor,
+sorun uygulamanın mikrofon seçiminde. Etmiyorsa sorun daha yukarıda:
+Oynatıcı doğru kabloya mı yazıyor, paket geliyor mu?
+
 ## Sağlıklı çıktı nasıl görünür
 
 ```
