@@ -103,117 +103,284 @@ New-NetFirewallRule -DisplayName "RelAudio UDP 59101" -Direction Inbound -Protoc
 
 ---
 
-## Kullanım
+## Başlamadan önce
 
-Her iki bilgisayarda RelAudio'yu aç. Her biri otomatik olarak dinlemeye başlar
-ve kendini ağa ilan eder.
+İki şeyi bilmen lazım — insanların takıldığı sorunların neredeyse tamamı
+bu ikisinden çıkıyor.
 
-### Bir bilgisayarın sesini diğerinde çal
-
-1. **Alan makine** — *Oynatıcı* sekmesi, **Hoparlörden dinle**, çıkış aygıtı
-   olarak hoparlörünü seç.
-2. **Gönderen makine** — *Sunucu* sekmesi, **Sistem sesi**, **Hedef cihaz**
-   listesinden alan makineyi seç, **Yayına başla**.
-
-Linux'ta "sistem sesi" bir çıkış aygıtının *monitor*'ü demektir. Varsayılan
-genelde doğrudur; ses gelmiyorsa medya oynatıcının hangi çıkışı kullandığına
-bak (`pactl list sink-inputs`).
-
-### Mikrofon gönder
-
-Aynısı, ama gönderen makinede **Mikrofon**'u seç ve sağ panelden mikrofonu belirle.
-
-### Kulaklık modu — bir makinenin kulaklığını diğerinde kullan
-
-RelAudio'nun asıl yazılma sebebi bu: B makinesini kullanıyorsun (Parsec, RDP,
-Sunshine, ne olursa) ama kulaklığın A makinesinde takılı ve onun B'nin
-kulaklığı gibi davranmasını istiyorsun — hem mikrofon hem hoparlör.
-
-İki makinede de **Kulaklık** sekmesini aç ve rol seç:
-
-| Makine | Rol | Ne yapar |
-|---|---|---|
-| Kulaklığın takılı olduğu | **Kulaklık bu makinede** | Mikrofonunu gönderir, geleni bu kulaklıkta çalar |
-| Kullandığın makine | **Uzak makine** | Gelen mikrofonu sanal kabloya yazar, sistem sesini geri gönderir |
-
-Karşı cihazı hedef seç, iki tarafta da başlat. Aygıtları RelAudio kendisi
-seçiyor ve asla bozmadığı tek bir kural var: **bir makinede yakaladığı aygıt
-ile yazdığı aygıt asla aynı olmaz.** Bu kural bozulursa ses kendi kuyruğunu
-yer ve kendi sesini duyarsın.
-
-Uzak makinede toplantı uygulamasına hangi mikrofonu kullanacağını yine sen
-söylüyorsun — uygulama adı ekranda yazıyor.
-
-> **Uzak masaüstünün ses aktarımını kapat.** Parsec, RDP ve benzerleri
-> makinenin varsayılan çıkışını yakalayıp sana gönderiyor. RelAudio da aynı
-> sesi taşıyorsa iki kez alırsın — ve uzak masaüstü RelAudio'nun yazdığı
-> kabloyu yakalıyorsa kendi sesini duyarsın. Sesi RelAudio taşısın, uzak
-> masaüstü görüntü ve klavye/fare ile ilgilensin.
-
-### Uzaktaki mikrofonu yerel mikrofon olarak kullan
-
-Biraz kurulum gerektiren senaryo bu. Windows'ta da Linux'ta da bir uygulamanın
-"mikrofon olması" için yerleşik bir yol yok; **sanal ses kablosu** gerekiyor:
-bir ucu hoparlör, öbür ucu mikrofon olan bir sürücü. Hoparlör ucuna yazılan,
+**1. Bir uygulamanın "mikrofon olması" için sanal ses kablosu gerekiyor.**
+Ne Windows ne Linux, normal bir programın başka bir programın mikrofon
+listesinde görünmesine izin veriyor. Sanal kablo iki uçlu bir sürücü: bir ucu
+**hoparlör** gibi görünür, öbür ucu **mikrofon** gibi. Hoparlör ucuna yazılan,
 mikrofon ucundan çıkar.
 
-**Sanal kablo kur:**
+```
+RelAudio buraya yazar              toplantı uygulaman buradan okur
+        │                                        │
+        ▼                                        ▼
+  CABLE Input  ══════ kablo ══════════►  CABLE Output
+  (bir hoparlör)                          (bir mikrofon)
+```
 
-| Platform | Ne kurulacak |
-|---|---|
-| **Windows** | [VB-CABLE](https://vb-audio.com/Cable/) — ücretsiz (bağış usulü). ZIP'i aç, `VBCABLE_Setup_x64.exe`'yi **yönetici olarak** çalıştır, sonra yeniden başlat. |
-| **Linux** | Kurulum gerekmez, şununla yarat:<br>`pactl load-module module-null-sink sink_name=relaudio media.class=Audio/Sink sink_properties=device.description=RelAudio-Cable` |
+İsimler kafa karıştırıcı çünkü **kablonun** bakış açısıyla konulmuş, Windows'un
+değil. Bu yüzden Windows Ses panelinde `CABLE Input` **Kayıttan yürütme**
+sekmesinde, `CABLE Output` ise **Kayıt** sekmesinde. `CABLE Output`'u
+hoparlör listesinde ararsan bulamazsın.
 
-**Sonra:**
-
-1. **Alan makine** — *Oynatıcı*, **Mikrofon olarak kullan**. Aygıt listesi
-   kendiliğinden sanal kablolara süzülür. **Hoparlör ucunu** seç (Windows'ta
-   `CABLE Input`). Yeşil kutu diğer uygulamalarda hangi mikrofonu seçeceğini
-   söyler.
-2. **Gönderen makine** — *Sunucu*, **Mikrofon**, hedef olarak alan makineyi
-   seç, yayına başla.
-3. **Discord / Zoom / OBS'de** — mikrofon olarak **mikrofon ucunu** seç
-   (Windows'ta `CABLE Output`).
-
-> **Sistem çıkışını kabloya çevirme.** O kabloya yalnızca RelAudio yazmalı.
-> Windows'un varsayılan çıkışını `CABLE Input` yaparsan bilgisayarın çaldığı
-> her şey de mikrofona karışır ve kendi sesini duyarsın.
-
-> **Kendi sesini duyuyorsan:** Windows Ses ayarları → Kayıt → `CABLE Output` →
-> Özellikler → **Dinle** sekmesi → *"Bu aygıtı dinle"* işaretini kaldır.
+**2. Bir makine, yazdığı aygıtı asla yakalamamalı.**
+Yakalarsa ses bir çember çizip kendine döner ve kendi sesini duyarsın.
+RelAudio'nun Kulaklık modu aygıtları senin için seçiyor ve bu kuralı asla
+bozmuyor; elle ayarlarsan aklında tutman gereken kural bu.
 
 ---
+
+## Kullanım
+
+**İki bilgisayarda da** RelAudio'yu aç. Her biri kendiliğinden dinlemeye başlar
+ve kendini ağa ilan eder; birbirlerini bulurlar, IP yazmazsın.
+
+Aşağıda "A makinesi" ve "B makinesi" sadece iki bilgisayarın demek.
+
+---
+
+### Senaryo 1 — Bir bilgisayarın sesini diğerinde çal
+
+*Örnek: masaüstünde müzik çalıyor, mutfaktaki dizüstünden duymak istiyorsun.*
+
+**Sesi çıkaracak makinede (B):**
+
+1. RelAudio'yu aç.
+2. **Oynatıcı** sekmesine geç.
+3. **Hoparlörden dinle** seçili olsun.
+4. Sağda **Çıkış aygıtı** altında hoparlörünü veya kulaklığını seç.
+5. **Dinlemeye başla**'ya bas. (Genelde kendiliğinden başlamıştır.)
+
+**Sesini göndermek istediğin makinede (A):**
+
+1. RelAudio'yu aç.
+2. **Sunucu** sekmesine geç.
+3. **Sistem sesi**'ni seç.
+4. **Hedef cihaz** listesinden B makinesini seç.
+   *Liste boşsa birkaç saniye bekle. Hâlâ boşsa Sorun giderme'ye bak.*
+5. **Yayına başla**'ya bas.
+
+A'da bir şey çal. Saniyesinde B'den duyman lazım.
+
+> Linux'ta "sistem sesi" bir çıkış aygıtının *monitor*'ü demek. RelAudio
+> varsayılanı seçiyor, çoğu durumda doğrusu odur. Ses gelmiyorsa medya
+> oynatıcının hangi çıkışı kullandığına bak — bazı uygulamalar belirli bir
+> aygıta sabitlenmiş olabiliyor.
+
+---
+
+### Senaryo 2 — Mikrofonu başka bilgisayarın hoparlörüne gönder
+
+Senaryo 1'in aynısı; tek fark, A makinesindeki 3. adımda **Sistem sesi**
+yerine **Mikrofon** seçmen ve sağdan hangi mikrofonu göndereceğini belirlemen.
+
+Bu, mikrofonu B'de sadece **duyulur** yapar. B'deki uygulamaların (Discord,
+Zoom…) onu gerçek bir mikrofon sanmasını istiyorsan Senaryo 4'e bak.
+
+---
+
+### Senaryo 3 — Kulaklık modu (asıl olay)
+
+*Örnek: Linux makinenin başında oturuyorsun, Parsec/RDP/Sunshine ile Windows
+makinesini kullanıyorsun. Kulaklığın Linux'a takılı. Onun Windows'un kulaklığı
+gibi çalışmasını istiyorsun — sen konuşursun toplantı duyar, toplantı konuşur
+sen duyarsın.*
+
+Bunun için **iki yön birden** gerekiyor ve RelAudio ikisini de senin için kuruyor.
+
+#### Adım 1 — Uzak makineye sanal ses kablosu kur
+
+Yalnızca kulaklığın **takılı olmadığı** makinede gerekiyor.
+
+**Windows:**
+
+1. <https://vb-audio.com/Cable/> adresine git.
+2. Soldaki Windows başlığı altından **VBCABLE_Driver_Pack** ZIP'ini indir.
+3. ZIP'i **bir klasöre çıkar.** ZIP'in içinden çalıştırma.
+4. `VBCABLE_Setup_x64.exe` dosyasına sağ tıkla → **Yönetici olarak çalıştır**.
+5. **Install Driver**'a bas, Windows'un sorduğu izni onayla.
+6. **Yeniden başlat.** Bunu yapmadan sürücü tam kullanılabilir olmuyor.
+
+Yeniden başlattıktan sonra hoparlör listende `CABLE Input`, mikrofon listende
+`CABLE Output` görünmeli.
+
+**Linux:** kurulum gerekmez. Şunu bir kez çalıştır (yeniden başlatana kadar kalır):
+
+```bash
+pactl load-module module-null-sink sink_name=relaudio \
+  media.class=Audio/Sink sink_properties=device.description=RelAudio-Cable
+```
+
+#### Adım 2 — Uzak masaüstünün sesini kapat
+
+**Bunu mutlaka yap.** Parsec, RDP, AnyDesk ve benzerleri uzak makinenin
+varsayılan hoparlörünü yakalayıp sana gönderiyor. RelAudio da ses taşıyorsa
+her şey sana iki kez gelir — ve uzak masaüstü tam da RelAudio'nun yazdığı
+kabloyu yakalıyorsa kendi sesini duyarsın, RelAudio'da ne değiştirirsen
+değiştir geçmez.
+
+- **Parsec:** Settings → Host (veya Client) → **Audio** → kapat.
+- **Windows RDP:** bağlantı ayarlarında Yerel Kaynaklar → Uzak ses →
+  **Çalma**.
+
+RelAudio o ses kanalının yerini alıyor, üstelik daha düşük gecikmeyle.
+
+#### Adım 3 — Uzak makinenin varsayılan hoparlörü *gerçek* hoparlör olsun
+
+Uzak makinede ses ayarlarını aç ve varsayılan çıkışın normal hoparlörün
+olduğundan emin ol (örn. `Speakers (Realtek(R) Audio)`) — **kablo olmasın**.
+
+Neden: RelAudio sistem sesini gerçek bir çıkış aygıtından yakalayıp sana
+gönderiyor. Varsayılan kablo olursa makinenin sesi kabloya gider, aktarılan
+mikrofonla karışır ve kendini duyarsın.
+
+Windows kısayolu: <kbd>Win</kbd>+<kbd>R</kbd> → `mmsys.cpl` → Enter.
+**Playback** sekmesi → hoparlörüne tıkla → **Set Default**.
+
+#### Adım 4 — İki makinede de Kulaklık modunu başlat
+
+**Kulaklığın takılı olduğu makinede:**
+
+1. **Kulaklık** sekmesi.
+2. **Kulaklık bu makinede**'yi seç.
+3. **Karşı cihaz** → uzak makineyi seç.
+4. **Kulaklık modunu başlat**'a bas.
+
+**Uzak makinede:**
+
+1. **Kulaklık** sekmesi.
+2. **Uzak makine**'yi seç.
+3. **Karşı cihaz** → kulaklığın olduğu makineyi seç.
+4. **Kulaklık modunu başlat**'a bas.
+
+Başlatmadan önce RelAudio hangi iki aygıtı seçtiğini gösteriyor. Uzak makinede
+şöyle görünmeli:
+
+```
+Kaynak   Speakers (Realtek(R) Audio)          ← sistem sesi, sana gidiyor
+Çıkış    CABLE Input (VB-Audio Virtual Cable) ← mikrofonun, kabloya yazılıyor
+```
+
+İki farklı aygıt. Sayfanın başındaki kural bu, uygulanmış hâli.
+
+#### Adım 5 — Toplantı uygulamasına ne kullanacağını söyle
+
+**Uzak** makinede, Discord / Zoom / Teams / Meet içinde:
+
+- **Mikrofon:** `CABLE Output (VB-Audio Virtual Cable)`
+  Başlata bastıktan sonra RelAudio bu adı ekranda yazıyor.
+- **Hoparlör / çıkış:** normal hoparlörün kalsın. Kabloyu seçme.
+  Onun sesi zaten sana aktarılıyor.
+
+Bu kadar. Kulaklığına konuş — toplantı seni duyar. Toplantı konuşur — sen
+kulaklığından duyarsın.
+
+---
+
+### Senaryo 4 — Uzaktaki mikrofonu yerel mikrofon olarak kullan (tek yön)
+
+Senaryo 3'ün aynısı, ama yalnızca mikrofon yönü seni ilgilendiriyor (sesi
+başka bir yoldan zaten alıyorsun).
+
+1. Alan makineye sanal kablo kur (yukarıdaki Adım 1).
+2. **Alan makine:** *Oynatıcı* → **Mikrofon olarak kullan** → aygıt listesi
+   kendiliğinden kablolara süzülür → `CABLE Input`'u seç. **Dinlemeye başla**.
+   Yeşil bir kutu çıkıp diğer uygulamada hangi mikrofonu seçeceğini söyler.
+3. **Gönderen makine:** *Sunucu* → **Mikrofon** → hedefi seç → **Yayına başla**.
+4. **Uygulamanda:** mikrofon olarak `CABLE Output`'u seç.
+
+> `CABLE Output` RelAudio'nun listesinde **görünmez**. RelAudio hoparlörleri
+> gösteriyor; `CABLE Output` bir mikrofon. Diğer uygulamanın mikrofon
+> listesinde çıkar. Bu neredeyse herkesi bir kez yanıltıyor.
 
 ## Sorun giderme
 
-| Belirti | Sebep ve çözüm |
+Sırayla ilerle. Her adım zincirin neresinin koptuğunu söylüyor.
+
+### "Kendi sesimi duyuyorum"
+
+En sık gelen şikâyet ve neredeyse hiçbir zaman RelAudio sesi sana geri çalmıyor.
+Şu sırayla kontrol et:
+
+1. **Uzak masaüstünün sesi hâlâ açık mı?** Parsec/RDP/AnyDesk uzak makinenin
+   hoparlör çıkışını sana gönderiyor. RelAudio da aktarıyorsa aynı ses sana iki
+   kez ulaşır — ve uzak masaüstü RelAudio'nun yazdığı kabloyu yakalıyorsa
+   RelAudio'da ne değiştirirsen değiştir kendini duyarsın.
+   → Sesini kapat (Senaryo 3, Adım 2).
+
+2. **Uzak makinenin varsayılan hoparlörü kablo mu?** O zaman o makinenin
+   çaldığı her şey kabloya gider, aktarılan mikrofonla karışır ve geri gelir.
+   → `mmsys.cpl` → Playback → gerçek hoparlörünü seç → **Set Default**.
+
+3. **Kablonun mikrofon ucunda "Bu aygıtı dinle" açık mı?** O ayar kabloyu
+   doğrudan hoparlörüne bağlıyor.
+   → `mmsys.cpl` → **Recording** sekmesi → `CABLE Output` → Properties →
+   **Listen** sekmesi → *"Listen to this device"* işaretini kaldır.
+
+4. **Aynı toplantı iki makinede birden açık mı?** Discord ikisinde de aynı
+   kanaldaysa biri aktardığın mikrofonu yayınlar, diğeri sana geri çalar.
+   Aktarım yapmayan makinede görüşmeden çık.
+
+5. **RelAudio kendi içinde döngü kurmuş olabilir mi?** Sunucu, Oynatıcı'nın
+   yazdığı aygıtı yakalıyorsa RelAudio kırmızı **Geri besleme döngüsü** uyarısı
+   gösteriyor. Kulaklık modu bunu engelliyor; elle ayarda karşılaşılabilir.
+
+### "Paket sayacı 0'da duruyor"
+
+Hiçbir şey ulaşmıyor. Ya gönderen yanlış adrese bakıyor ya da güvenlik duvarı
+araya giriyor.
+
+- **Oynatıcı** sekmesi bu makinenin adresini gösteriyor. Gönderenin tam olarak
+  ona baktığından emin ol.
+- Gönderen tarafta kırmızı **Gönderilemeyen** sayacı varsa paketler
+  reddediliyor demektir — adres yanlış. Birden çok ağ adaptörü olan bir makine
+  (VPN, WSL, Hyper-V) birden fazla adres ilan ediyor; hedefi tekrar seç ya da
+  adresi elle yaz.
+- Windows güvenlik duvarı: sorduğunda izin ver, ya da kuralı elle ekle:
+  ```
+  New-NetFirewallRule -DisplayName "RelAudio UDP 59101" -Direction Inbound -Protocol UDP -LocalPort 59101 -Action Allow
+  ```
+
+### "Paket geliyor ama ses duymuyorum"
+
+Ses dinlemediğin bir yere gidiyor.
+
+- İstatistikler panelindeki **Çıkış** satırına bak. Orası akışın *gerçekte
+  açtığı* aygıt — açılır listede seçili olan değil. Yanlış yazıyorsa sağdan
+  aygıtı değiştir; akış kendiliğinden yeniden kurulur.
+- Çıkışı ağdan bağımsız sına:
+  ```
+  relaudio-cli tone
+  ```
+  440 Hz ton duymuyorsan sorun çıkış aygıtında, ağda değil.
+- Kulaklık/mikrofon modunda ses bir **kabloya** gidiyor, yani duymaman normal.
+  Karşı uca bak:
+  ```
+  relaudio-cli level --mic --device "<CABLE Output id>"
+  ```
+  Id'yi `relaudio-cli devices` ile al. Karşı taraf konuşurken çubuk oynamalı.
+
+### "Toplantı uygulamam kabloyu mikrofon olarak göstermiyor"
+
+- VB-CABLE kurduktan sonra **yeniden başlattın mı?** Öncesinde tam kayıtlı olmuyor.
+- Muhtemelen hoparlör listesine bakıyorsun. `CABLE Output` bir mikrofon;
+  mikrofon/giriş ayarlarında çıkar, hoparlörlerde asla.
+- Bazı uygulamalar aygıt listesini önbelleğe alıyor — toplantı uygulamasını
+  yeniden başlat.
+
+### Diğer
+
+| Belirti | Sebep |
 |---|---|
-| **Paket sayacı 0'da duruyor** | Yanlış hedef adres ya da güvenlik duvarı. Oynatıcı sekmesi bu makinenin adresini gösteriyor; gönderenin oraya baktığından emin ol. |
-| **Paket geliyor ama ses yok** | Yanlış çıkış aygıtı. İstatistikler panelindeki **Çıkış** satırı akışın gerçekte açtığı aygıtı gösterir — açılır listede seçili olanı değil. Sağ panelden değiştir, akış kendiliğinden yeniden kurulur. Çıkışı tek başına sınamak için `relaudio-cli tone`. |
-| **Kendi sesini duyuyorsun** | Bir şey kabloyu dinliyor. Yukarıdaki iki nota bak. |
 | **Uygulama açılmıyor, hiçbir şey olmuyor** | Zaten çalışıyordur — sistem tepsisine bak. RelAudio tek örneğe izin veriyor. |
 | **GNOME'da tepsi simgesi yok** | GNOME'da varsayılan tepsi yok. *AppIndicator and KStatusNotifierItem Support* eklentisini kur. Tepsi yoksa RelAudio "tepsiye küçült"ü kapatıyor ki uygulama erişilemez hâle gelmesin. |
-| **Tampon zamanla büyüyor** | İki makine arasında saat kayması. Telafi henüz yok; akışı yeniden başlat. |
-| **Başka bir şey** | Log'a bak: `%LOCALAPPDATA%\RelAudio\relaudio.log` (Windows) veya `~/.local/state/RelAudio/relaudio.log` (Linux). Ayarlar sekmesi tam yolu gösteriyor. |
-
-### Teşhis komutları
-
-Uygulamayla birlikte bir komut satırı aracı da derleniyor:
-
-```bash
-relaudio-cli devices                  # aygıtları id'leriyle listele
-relaudio-cli tone                     # test tonu çal — çıkışı sınar, ağ gerekmez
-relaudio-cli level --mic --device ID  # canlı giriş seviyesi ölçer
-relaudio-cli send 192.168.1.10        # arayüzsüz gönder
-relaudio-cli recv                     # arayüzsüz al
-```
-
-`relaudio` uygulamayı açar; `relaudio-cli` teşhis aracıdır.
-
-`relaudio-cli level` zincirin neresinin koptuğunu bulmanın en hızlı yolu: kablonun
-mikrofon ucuna doğrult ve sesin gerçekten ulaşıp ulaşmadığını gör.
-
----
+| **Tampon zamanla büyüyor / "Atılan" sayacı artıyor** | İki makine arasında saat kayması. Telafi henüz yok; akışı yeniden başlat. |
+| **Ses kesik kesik** | Oynatıcı sekmesinde **Tampon**'u artır. Her birim 5 ms; varsayılan 8 = 40 ms. Wi-Fi genelde 15–20 ister. |
+| **Başka bir şey** | Log'a bak. Ayarlar sekmesi tam yolu gösteriyor — Windows'ta `%LOCALAPPDATA%\RelAudio\relaudio.log`, Linux'ta `~/.local/state/RelAudio/relaudio.log`. |
 
 ## Bilinen sınırlar
 
