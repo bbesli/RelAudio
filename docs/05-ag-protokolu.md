@@ -28,7 +28,7 @@ edilir. Güvenlik duvarı istisnası kurulum sırasında istenir (Windows'ta ilk
   os=windows|macos|linux
   caps=send,recv,mic      desteklenen roller
   codecs=pcm16,opus
-  cport=59100             kontrol portu
+  cport=59100             kontrol portu (0 = uzaktan başlatma kapalı)
   aport=59101             ses portu
   id=<uuid>               kalıcı cihaz kimliği
   ```
@@ -46,6 +46,28 @@ Keşfedilen eşler 30 s TTL ile tutulur; ilan gelmezse `peer.lost` yayılır.
 ## 2. Kontrol kanalı (TCP)
 
 Satır-ayrımlı JSON. Oturum kurma, aygıt/format anlaşması, canlı tutma, kapatma.
+
+> **Uygulanan alt küme (v0.1).** Aşağıdaki tam el sıkışma **yazılmadı**.
+> Bugün `crates/relaudio-core/src/net/control.rs` yalnızca kulaklık modunu
+> uzaktan başlatmak için gereken üç komutu taşıyor ve her bağlantı tek istek +
+> tek cevap sonrası kapanıyor. Gerekçe ve güvenlik sınırları:
+> [ADR-0007](adr/0007-uzaktan-baslatma-kontrol-kanali.md).
+>
+> ```
+> → {"v":1,"body":{"start_headset":{"role":"remote","audio_port":59101,"name":"linux-box"}}}
+> ← {"v":1,"ok":true,"error":null,"name":"WINDOWS-PC","paired_mic":"CABLE Output (...)","code":null}
+>
+> → {"v":1,"body":"stop_headset"}      → {"v":1,"body":"ping"}
+> ```
+>
+> - `role` = **isteği alan** tarafın üstleneceği rol.
+> - Hedef adres telde yok: ses TCP bağlantısının kaynak IP'sine gidiyor.
+> - `code` ret sebebinin makine okunur karşılığı (`disabled`,
+>   `mic_not_allowed`, `busy`, `need_cable`, ...); arayüz bunu çeviriyor.
+> - Sürüm gövdeden önce okunuyor, böylece gövde şekli değişse bile eski uç
+>   "sürüm uyumsuz" diyebiliyor.
+> - Varsayılan **kapalı**; kapalıyken port hiç bağlanmıyor ve `cport` ilan
+>   edilmiyor.
 
 ### El sıkışma
 

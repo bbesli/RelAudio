@@ -33,6 +33,11 @@ export interface Stats {
   player_device_name: string;
   server_device_name: string;
   feedback_loop: boolean;
+  /** Kulaklık modu bu makinede uzaktan başlatıldıysa: kim başlattı. */
+  started_by: { name: string; address: string } | null;
+  /** Ekranda gösterilecek eşleştirme kodu ve kalan saniye. */
+  pairing_code: string | null;
+  pairing_seconds: number;
 
   last_error: string | null;
 }
@@ -60,6 +65,8 @@ export interface Peer {
   port: number;
   os: string;
   listening: boolean;
+  /** Eş tek düğmeyle uzaktan başlatılabiliyor mu? */
+  can_remote_start: boolean;
 }
 
 export const getPeers = () => invoke<Peer[]>("peers");
@@ -70,6 +77,52 @@ export interface MicHint {
 }
 
 export const getMicHint = (output_id: string) => invoke<MicHint>("mic_hint", { outputId: output_id });
+
+export type HeadsetRole = "local" | "remote";
+
+/** Çekirdeğin çözdüğü kulaklık aygıt planı — arayüz ve uzaktan gelen istek
+ *  aynı politikayı kullansın diye Rust tarafında hesaplanıyor. */
+export interface HeadsetPlan {
+  capture: Device | null;
+  play: Device | null;
+  capture_kind: "input" | "monitor";
+  /** "need_physical" | "need_cable" — çeviri anahtarına eşlenir. */
+  problem: string | null;
+  capture_choices: Device[];
+  play_choices: Device[];
+  paired_mic: string | null;
+}
+
+export const getHeadsetPlan = (role: HeadsetRole, savedPlay: string, savedCapture: string) =>
+  invoke<HeadsetPlan>("headset_plan", { role, savedPlay, savedCapture });
+
+export interface HeadsetStartResult {
+  remote_started: boolean;
+  remote_name: string;
+  remote_paired_mic: string | null;
+  /** Karşı taraf başlatılamadıysa sebebi; bu makine yine de çalışıyor. */
+  remote_error: string | null;
+  /** Sebebin çevrilebilir karşılığı ("disabled", "needs_pairing", ...). */
+  remote_error_code: string | null;
+  /** Karşı tarafla henüz eşleşmedik; kod ekranda gösteriliyor. */
+  needs_pairing: boolean;
+  /** Karşı makinede yazılacak 6 haneli kod. */
+  pairing_code: string | null;
+}
+
+/** Karşı makinenin ekranındaki kodu girip eşleşir. Dönen değer karşı
+ *  makinenin adı; hata `pair_wrong` gibi bir kod olarak fırlıyor. */
+export const pairWithPeer = (peer_id: string, code: string) =>
+  invoke<string>("pair_with_peer", { peerId: peer_id, code });
+
+export const cancelPairing = () => invoke<void>("cancel_pairing");
+export const isPaired = (peer_id: string) => invoke<boolean>("is_paired", { peerId: peer_id });
+export const unpair = (peer_id: string) => invoke<void>("unpair", { peerId: peer_id });
+
+export const startHeadset = (role: HeadsetRole, peer_id: string, address: string) =>
+  invoke<HeadsetStartResult>("start_headset", { args: { role, peer_id, address } });
+
+export const stopHeadset = () => invoke<void>("stop_headset");
 
 export interface Config {
   language: string;
@@ -83,6 +136,9 @@ export interface Config {
   server_device_monitor: string;
   server_device_input: string;
   server_target: string;
+  headset_role: string;
+  remote_control: boolean;
+  paired: Record<string, { key: string; name: string }>;
 }
 
 export const getConfig = () => invoke<Config>("get_config");

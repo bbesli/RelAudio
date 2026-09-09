@@ -23,6 +23,10 @@ pub struct Peer {
     pub name: String,
     pub address: String,
     pub port: u16,
+    /// Kontrol kanalının TCP portu (`docs/05`, TXT alanı `cport`). Eş eski
+    /// bir sürümse ya da alan yoksa 0 gelir — o zaman uzaktan başlatma
+    /// denenmez, kullanıcıya "karşı taraf desteklemiyor" denir.
+    pub control_port: u16,
     pub os: String,
     /// Bu eş şu anda dinliyor mu (ses alabilir mi)?
     pub listening: bool,
@@ -36,6 +40,8 @@ pub struct Discovery {
     /// güncellenmeli, yoksa eşler eski porta yayın yapıyor ve hiçbir şey
     /// ulaşmıyor.
     port: std::sync::atomic::AtomicU16,
+    /// İlan edilen kontrol portu. 59100 doluysa farklı olabiliyor.
+    control_port: std::sync::atomic::AtomicU16,
     self_name: String,
     /// Bu sürece özgü kimlik. Kendimizi eş listesinden ayıklamak için.
     instance_id: String,
@@ -89,7 +95,7 @@ pub fn device_name() -> String {
 
 impl Discovery {
     /// Keşfi başlatır: kendini ilan eder ve diğerlerini dinlemeye başlar.
-    pub fn start(port: u16) -> Result<Self> {
+    pub fn start(port: u16, control_port: u16) -> Result<Self> {
         let daemon = ServiceDaemon::new()
             .map_err(|e| Error::Stream(format!("could not start mDNS: {e}")))?;
 
@@ -159,6 +165,7 @@ impl Discovery {
                                 },
                                 os: get("os"),
                                 listening: get("listening") == "1",
+                                control_port: get("cport").parse().unwrap_or(0),
                                 address: addr,
                                 port: info.get_port(),
                                 id: inst.clone(),
@@ -184,6 +191,7 @@ impl Discovery {
             peers,
             instance,
             port: std::sync::atomic::AtomicU16::new(port),
+            control_port: std::sync::atomic::AtomicU16::new(control_port),
             self_name: name,
             instance_id,
         };
@@ -199,6 +207,10 @@ impl Discovery {
             ("name".to_string(), self.self_name.clone()),
             ("os".to_string(), os_name().to_string()),
             ("listening".to_string(), if listening { "1" } else { "0" }.to_string()),
+            (
+                "cport".to_string(),
+                self.control_port.load(std::sync::atomic::Ordering::Relaxed).to_string(),
+            ),
             ("iid".to_string(), self.instance_id.clone()),
         ]
         .into_iter()
@@ -226,6 +238,14 @@ impl Discovery {
     /// İlan edilen portu değiştirir ve yeniden ilan eder.
     pub fn set_port(&self, port: u16, listening: bool) -> Result<()> {
         self.port.store(port, std::sync::atomic::Ordering::Relaxed);
+        self.announce(listening)
+    }
+
+    /// İlan edilen kontrol portunu değiştirir. Kontrol sunucusu ilandan
+    /// sonra başlarsa (port çakışması yüzünden farklı bir porta düşmüşse)
+    /// bu çağrılmazsa eşler yanlış kapıyı çalar.
+    pub fn set_control_port(&self, port: u16, listening: bool) -> Result<()> {
+        self.control_port.store(port, std::sync::atomic::Ordering::Relaxed);
         self.announce(listening)
     }
 

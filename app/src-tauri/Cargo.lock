@@ -1555,6 +1555,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
+name = "hmac-sha256"
+version = "1.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec9d92d097f4749b64e8cc33d924d9f40a2d4eb91402b458014b781f5733d60f"
+
+[[package]]
 name = "hostname"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3008,6 +3014,8 @@ dependencies = [
 name = "relaudio-core"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.2.17",
+ "hmac-sha256",
  "hostname",
  "libpulse-binding",
  "libpulse-simple-binding",
@@ -3015,6 +3023,7 @@ dependencies = [
  "mdns-sd",
  "relaudio-proto",
  "serde",
+ "serde_json",
  "thiserror 2.0.20",
  "toml 0.8.2",
  "wasapi",

@@ -36,3 +36,4 @@ Neden diğerleri seçilmedi?
 | [0004](0004-linux-pulse-api.md) | Linux'ta PipeWire API'si değil, PulseAudio API'si | Kabul edildi |
 | [0005](0005-cekirdek-tauri-icinde.md) | Çekirdek ayrı süreç değil, Tauri sürecinde | Kabul edildi |
 | [0006](0006-mit-lisansi.md) | MIT lisansı | Kabul edildi |
+| [0007](0007-uzaktan-baslatma-kontrol-kanali.md) | Tek düğmeyle iki taraf: kontrol kanalı, varsayılan kapalı | Kabul edildi |

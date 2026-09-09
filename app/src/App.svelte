@@ -3,7 +3,9 @@
     listDevices, startServer, stopServer, startPlayer, stopPlayer, getStats,
     setMinimizeToTray, getLocalAddress, getPeers, getDeviceName, getMicHint,
     getConfig, setConfig, getConfigPath, getLogPath, setTrayLabels,
+    getHeadsetPlan, startHeadset, stopHeadset, pairWithPeer, cancelPairing, isPaired, unpair,
     type Device, type Stats, type Peer, type MicHint, type Config,
+    type HeadsetPlan, type HeadsetRole, type HeadsetStartResult,
   } from "./lib/api";
   import { LOCALES, translator, detectLocale, isRtl } from "./lib/i18n";
   import DevicePicker from "./lib/DevicePicker.svelte";
@@ -12,10 +14,14 @@
   import BuyMeCoffee from "./lib/BuyMeCoffee.svelte";
 
   type Tab = "headset" | "server" | "player" | "settings";
-  type HeadsetRole = "local" | "remote";
 
   let tab = $state<Tab>("headset");
   let headsetRole = $state<HeadsetRole>("local");
+  /** Çekirdeğin çözdüğü aygıt planı. Uzaktan gelen istek de aynısını
+   *  kullanıyor, bu yüzden politika burada değil Rust'ta. */
+  let headsetPlan = $state<HeadsetPlan | null>(null);
+  /** Son "başlat" denemesinde karşı tarafa ne olduğu. */
+  let remoteResult = $state<HeadsetStartResult | null>(null);
   let devices = $state<Device[]>([]);
   let stats = $state<Stats | null>(null);
   let peers = $state<Peer[]>([]);
@@ -66,7 +72,7 @@
       language: "", minimize_to_tray: true, auto_listen: true,
       player_mode: "listen", player_port: 59101, player_device: "", player_buffer: 8,
       server_source: "monitor", server_device_monitor: "", server_device_input: "",
-      server_target: "",
+      server_target: "", headset_role: "local", remote_control: true, paired: {},
     };
   }
 
@@ -84,6 +90,7 @@
       }
       lang = c.language || detectLocale();
       if (!c.language) c.language = lang;
+      headsetRole = c.headset_role === "remote" ? "remote" : "local";
       cfg = c;
       configPath = await getConfigPath().catch(() => "");
       logPath = await getLogPath().catch(() => "");
@@ -210,83 +217,136 @@
   /** Kulaklık modu = iki yön birden çalışıyor. */
   const headsetRunning = $derived(!!stats?.server_running && !!stats?.player_running);
 
-  // — Kulaklık modu aygıt seçimi —
+  // — Kulaklık modu —
   //
-  // Tek kural: aynı makinede **yakalanan aygıt ile yazılan aygıt aynı
-  // olmamalı**. Aynı olursa ses kendi kuyruğunu yer ve kullanıcı kendini
-  // duyar. Sanal kablo tarafında bu özellikle kolay: kabloya yazıp yine
-  // kablonun loopback'ini yakalamak tek satırlık bir hata.
-  const physicalOutputs = $derived(devices.filter((d) => d.kind === "output" && !d.virtual_cable));
-  const cables = $derived(
-    devices.filter((d) => d.kind === "output" && d.virtual_cable)
-           .slice().sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0))
-  );
-  const physicalMonitors = $derived(devices.filter((d) => d.kind === "monitor" && !d.virtual_cable));
-  const physicalMics = $derived(devices.filter((d) => d.kind === "input" && !d.virtual_cable));
+  // Aygıt seçim politikası **Rust tarafında** (`audio::headset_plan`).
+  // Sebebi: uzaktan gelen "başlat" isteğinde arayüz hiç devrede olmuyor ve
+  // iki yerde ayrı ayrı yazılan bir politika kaçınılmaz olarak ayrışır.
+  // Değişmez kural orada da aynı: yakalanan aygıt ile yazılan aygıt aynı
+  // olamaz, yoksa kullanıcı kendini duyar.
 
-  function pick(list: Device[]): Device | undefined {
-    return list.find((d) => d.is_default) ?? list[0];
-  }
+  const chosenPeer = $derived(peers.find((p) => p.id === selectedPeer) ?? null);
 
-  /** Seçilen role göre (yakalama, çalma) aygıtlarını çözer. */
-  /** Kayıtlı seçim hâlâ geçerliyse onu kullan, değilse otomatik seç. */
-  function preferSaved(saved: string, list: Device[]): Device | undefined {
-    return list.find((d) => d.id === saved) ?? pick(list);
-  }
+  // — Eşleştirme —
+  //
+  // Uzaktan başlatma yalnızca eşleşilmiş cihazlar için açık. Paylaşan makine
+  // 6 haneli kodu ekranda gösteriyor, kullanıcı kodu karşı makinede yazıyor,
+  // iki taraf bir anahtar paylaşıyor ve bir daha sorulmuyor.
+  let peerPaired = $state<boolean | null>(null);
+  let codeInput = $state("");
+  let pairingBusy = $state(false);
+  let pairedWith = $state<string | null>(null);
 
-  function headsetDevices(role: HeadsetRole):
-    { capture?: Device; play?: Device; kind: "input" | "monitor"; error?: string;
-      captureChoices: Device[]; playChoices: Device[] } {
-    if (role === "local") {
-      const playChoices = physicalOutputs;
-      const captureChoices = physicalMics;
-      const capture = preferSaved(cfg?.server_device_input ?? "", captureChoices);
-      const play = preferSaved(cfg?.player_device ?? "", playChoices);
-      if (!play) return { kind: "input", error: t("headset.needPhysical"), captureChoices, playChoices };
-      return { capture, play, kind: "input", captureChoices, playChoices };
+  $effect(() => {
+    const id = selectedPeer;
+    void cfg?.paired;
+    if (!id) { peerPaired = null; return; }
+    isPaired(id).then((v) => (peerPaired = v)).catch(() => (peerPaired = null));
+  });
+
+  /** Kodumuz ekranda dururken karşı taraf onu kullanırsa kod kayboluyor.
+   *  O an başlatmayı kendiliğinden tekrar deniyoruz: kullanıcı düğmeye
+   *  ikinci kez basmak zorunda kalmasın. */
+  $effect(() => {
+    const showing = !!stats?.pairing_code;
+    if (remoteResult?.needs_pairing && !showing && !busy) {
+      remoteResult = null;
+      toggleHeadset();
     }
-    const playChoices = cables;
-    const play = preferSaved(cfg?.player_device ?? "", playChoices);
-    if (!play) return { kind: "monitor", error: t("headset.needCable"), captureChoices: [], playChoices };
-    // Kabloya yazıp aynı kabloyu yakalamak döngü kurar; kablonun kendi
-    // monitörü kaynak listesinden elenir.
-    const captureChoices = physicalMonitors.filter((m) => !m.id.startsWith(play.id));
-    const capture = preferSaved(cfg?.server_device_monitor ?? "", captureChoices);
-    if (!capture) return { kind: "monitor", error: t("headset.needPhysical"), captureChoices, playChoices };
-    return { capture, play, kind: "monitor", captureChoices, playChoices };
-  }
+  });
 
-  const headsetPlan = $derived(headsetDevices(headsetRole));
-  const headsetPairedMic = $derived(
-    headsetRole === "remote" && headsetPlan.play
-      ? devices.find((d) => d.kind === "input" && d.virtual_cable)?.name ?? "?"
-      : ""
+  const submitCode = () =>
+    act(async () => {
+      if (!chosenPeer) throw new Error(t("error.needTarget"));
+      pairingBusy = true;
+      try {
+        pairedWith = await pairWithPeer(chosenPeer.id, codeInput);
+        codeInput = "";
+        cfg = await getConfig();
+        peerPaired = true;
+      } catch (e) {
+        const code = String(e).replace(/^Error:\s*/, "");
+        throw new Error(REMOTE_CODES.has(code) ? t(`remote.${code}`) : code);
+      } finally {
+        pairingBusy = false;
+      }
+    });
+
+  const savedCaptureId = $derived(
+    headsetRole === "local" ? (cfg?.server_device_input ?? "") : (cfg?.server_device_monitor ?? "")
+  );
+
+  $effect(() => {
+    const role = headsetRole;
+    const play = cfg?.player_device ?? "";
+    const capture = savedCaptureId;
+    // Aygıt listesi değiştiğinde (kablo kuruldu, kulaklık takıldı) planı
+    // tazele; aksi hâlde kullanıcı Yenile'ye bassa da eski planı görüyor.
+    void devices.length;
+    getHeadsetPlan(role, play, capture)
+      .then((p) => (headsetPlan = p))
+      .catch((e) => { headsetPlan = null; error = String(e); });
+  });
+
+  /** Plan kurulamadıysa çeviri anahtarına eşlenmiş sebep. */
+  const headsetProblem = $derived(
+    headsetPlan?.problem === "need_cable" ? t("headset.needCable")
+      : headsetPlan?.problem === "need_physical" ? t("headset.needPhysical")
+      : null
+  );
+
+  /** Karşı tarafın verdiği ret sebebi — kodu biliyorsak kendi dilimizde.
+   *  `error` metni karşı makinede üretiliyor ve onun dili bizimkiyle aynı
+   *  olmak zorunda değil; kod bilinmiyorsa metne düşüyoruz. */
+  const REMOTE_CODES = new Set([
+    "disabled", "busy", "busy_other", "need_cable", "need_physical",
+    "device_open", "version", "needs_pairing",
+    "pair_no_code", "pair_expired", "pair_wrong", "pair_too_many",
+    "pair_no_random", "pair_bad_reply", "auth_stale", "auth_replay", "auth_bad",
+    "peer_gone", "no_control",
+  ]);
+  const remoteError = $derived(
+    !remoteResult?.remote_error ? null
+      : remoteResult.remote_error_code && REMOTE_CODES.has(remoteResult.remote_error_code)
+        ? t(`remote.${remoteResult.remote_error_code}`)
+        : remoteResult.remote_error
+  );
+
+  /** Sistem sesi kaynağının kullanıcıya gösterilecek adı.
+   *  Linux'ta kaynak "Monitor of Razer …" gibi geliyor; talimatta hoparlörün
+   *  kendi adı yazmalı, monitör teknik bir ayrıntı. */
+  const speakerName = $derived(
+    (headsetPlan?.capture?.name ?? "—").replace(/^Monitor of /i, "")
+  );
+
+  /** Toplantı uygulamasında seçilecek mikrofon. Uzak rolü karşı taraf
+   *  üstlendiyse adı o bildiriyor; biz üstlendiysek kendi planımızda. */
+  const pairedMic = $derived(
+    (headsetRole === "local" ? remoteResult?.remote_paired_mic : headsetPlan?.paired_mic) ?? "?"
   );
 
   const toggleHeadset = () =>
     act(async () => {
       if (headsetRunning) {
-        await stopServer();
-        await stopPlayer();
+        remoteResult = null;
+        await stopHeadset();
         return;
       }
-      const plan = headsetDevices(headsetRole);
-      if (plan.error) throw new Error(plan.error);
-      const peer = peers.find((p) => p.id === selectedPeer);
-      const dest = peer ? `${peer.address}:${peer.port}` : (cfg!.server_target ?? "").trim();
-      if (!dest) throw new Error(t("error.needTarget"));
-
-      persist({
-        player_mode: headsetRole === "remote" ? "mic" : "listen",
-        player_device: plan.play!.id,
-        server_source: plan.kind === "input" ? "input" : "monitor",
-        ...(plan.kind === "input"
-          ? { server_device_input: plan.capture!.id }
-          : { server_device_monitor: plan.capture!.id }),
-      });
-      await startPlayer(cfg!.player_port, plan.play!.id, cfg!.player_buffer);
-      await startServer(dest, plan.capture!.id, plan.kind === "input" ? "input" : "monitor");
+      if (headsetProblem) throw new Error(headsetProblem);
+      const peer = chosenPeer;
+      if (!peer && !(cfg!.server_target ?? "").trim()) throw new Error(t("error.needTarget"));
+      persist({ headset_role: headsetRole });
+      remoteResult = await startHeadset(
+        headsetRole,
+        peer?.id ?? "",
+        peer ? "" : (cfg!.server_target ?? "").trim(),
+      );
+      // Rust seçtiği aygıtları diske yazdı. Buradaki kopyayı tazelemezsek
+      // bir sonraki persist() eski değerleri geri yazıyor ve seçim sessizce
+      // geri alınıyordu.
+      cfg = await getConfig().catch(() => cfg!);
     });
+
 </script>
 
 {#if cfg}
@@ -308,6 +368,16 @@
   </nav>
 
   <main>
+    {#if stats?.started_by}
+      <div class="remote-banner" role="status">
+        <div>
+          <strong>{t("headset.startedBy", { device: stats.started_by.name })}</strong>
+          <p class="fb">{stats.started_by.address}</p>
+        </div>
+        <button class="danger" onclick={() => act(stopHeadset)}>{t("headset.stop")}</button>
+      </div>
+    {/if}
+
     {#if stats?.feedback_loop}
       <div class="err" role="alert">
         <div>
@@ -362,32 +432,100 @@
           </label>
         {/if}
 
-        {#if headsetPlan.error}
-          <div class="mic-info"><strong>{headsetPlan.error}</strong></div>
+        <!-- Eş uzaktan başlatmayı desteklemiyorsa bunu düğmeye basmadan
+             söylemek gerekiyor: aksi hâlde kullanıcı yarım kurulmuş bir
+             oturumla baş başa kalıyor ve sebebini bilmiyor. -->
+        {#if chosenPeer && !chosenPeer.can_remote_start && !headsetRunning}
+          <div class="mic-info">
+            <strong>{t("headset.peerNoRemote", { device: chosenPeer.name })}</strong>
+          </div>
+        {/if}
+
+        <!-- Bu makine kodu gösteriyor: karşı taraf onu girecek. -->
+        {#if stats?.pairing_code}
+          <div class="pair-code">
+            <strong>{t("pair.showTitle", { device: chosenPeer?.name ?? "—" })}</strong>
+            <div class="code">{stats.pairing_code.slice(0, 3)} {stats.pairing_code.slice(3)}</div>
+            <p class="fb">{t("pair.showBody", { seconds: String(stats.pairing_seconds) })}</p>
+            <button class="link" onclick={() => act(async () => { await cancelPairing(); remoteResult = null; })}>
+              {t("pair.cancel")}
+            </button>
+          </div>
+
+        <!-- Karşı taraf eşleşmemiş: kodu buraya gir. -->
+        {:else if chosenPeer && chosenPeer.can_remote_start && peerPaired === false && !headsetRunning}
+          <div class="pair-code">
+            <strong>{t("pair.enterTitle", { device: chosenPeer.name })}</strong>
+            <p class="fb">{t("pair.enterBody", { device: chosenPeer.name })}</p>
+            <div class="pair-row">
+              <input class="code-input" type="text" inputmode="numeric" maxlength="6"
+                     placeholder="000000" bind:value={codeInput}
+                     onkeydown={(e) => { if (e.key === "Enter" && codeInput.length === 6) submitCode(); }} />
+              <button class="primary" disabled={pairingBusy || codeInput.trim().length !== 6}
+                      onclick={submitCode}>{t("pair.submit")}</button>
+            </div>
+          </div>
+        {:else if pairedWith && peerPaired}
+          <div class="mic-ok"><strong>{t("pair.done", { device: pairedWith })}</strong></div>
+        {/if}
+
+        {#if headsetProblem}
+          <div class="mic-info"><strong>{headsetProblem}</strong></div>
         {:else}
           <div class="plan">
-            <div class="row"><span>{t("stats.sourceDevice")}</span><strong>{headsetPlan.capture?.name ?? "—"}</strong></div>
-            <div class="row"><span>{t("stats.outputDevice")}</span><strong>{headsetPlan.play?.name ?? "—"}</strong></div>
+            <div class="row"><span>{t("stats.sourceDevice")}</span><strong>{headsetPlan?.capture?.name ?? "—"}</strong></div>
+            <div class="row"><span>{t("stats.outputDevice")}</span><strong>{headsetPlan?.play?.name ?? "—"}</strong></div>
           </div>
         {/if}
 
         {#if headsetRunning}
-          <div class="mic-ok">
-            <strong>{t("headset.setupTitle")}</strong>
-            <ol class="steps">
-              {#if headsetRole === "remote"}
-                <li><strong class="pick">{t("headset.setupMic", { device: headsetPairedMic })}</strong></li>
+          {#if stats?.started_by}
+            <!-- Bu makine uzaktan başlatıldı: istek göndermedik, dolayısıyla
+                 "karşı taraf başlatılamadı" demek yanlış olurdu. -->
+            <div class="mic-ok">
+              <strong>{t("headset.startedBy", { device: stats.started_by.name })}</strong>
+              <ol class="steps">
+                {#if headsetRole === "remote"}
+                  <li><strong class="pick">{t("headset.setupMic", { device: headsetPlan?.paired_mic ?? "?" })}</strong></li>
+                {/if}
+              </ol>
+              <p class="warn-line">{t("headset.parsec")}</p>
+            </div>
+          {:else if remoteResult?.remote_started}
+            <div class="mic-ok">
+              <strong>{t("headset.bothStarted", { device: remoteResult.remote_name })}</strong>
+              <p class="fb">{headsetRole === "local" ? t("headset.setupTitle") : t("headset.setupTitleHere")}</p>
+              <ol class="steps">
+                <li><strong class="pick">{t("headset.setupMic", { device: pairedMic })}</strong></li>
+                <!-- Talimat, toplantı uygulamasının çalıştığı makine için.
+                     Kulaklık bizdeyse o makine karşı taraf; kulaklık karşıdaysa
+                     toplantı bu makinede ve hoparlör bizim gerçek
+                     hoparlörümüz — kablo değil, o zaten yayınlanıyor. -->
+                <li>{t("headset.setupOut", {
+                  device: headsetRole === "local"
+                    ? t("headset.theirSpeakers")
+                    : speakerName })}</li>
+              </ol>
+              <p class="warn-line">{t("headset.parsec")}</p>
+            </div>
+          {:else}
+            <div class="mic-info">
+              <strong>{t("headset.halfStarted")}</strong>
+              {#if remoteError}
+                <p class="fb">{remoteError}</p>
               {/if}
-              <li>{t("headset.setupOut", { device: headsetPlan.play?.name ?? "—" })}</li>
-            </ol>
-            <p class="warn-line">{t("headset.parsec")}</p>
-          </div>
+              <p class="fb">{t("headset.startTheirSide")}</p>
+            </div>
+          {/if}
         {/if}
 
         <button class:danger={headsetRunning} class:primary={!headsetRunning}
-                onclick={toggleHeadset} disabled={busy || !!headsetPlan.error}>
+                onclick={toggleHeadset} disabled={busy || !!headsetProblem}>
           {headsetRunning ? t("headset.stop") : t("headset.start")}
         </button>
+        {#if !headsetRunning}
+          <p class="hint">{t("headset.oneButton")}</p>
+        {/if}
       </section>
 
     {:else if tab === "server"}
@@ -495,11 +633,11 @@
             <strong>{t("player.micReady")}</strong>
             <ol class="steps">
               <li class="done">{t("player.micStep1", {
-                cable: devices.find((d) => d.id === cfg.player_device)?.name ?? "—" })}</li>
+                cable: devices.find((d) => d.id === cfg!.player_device)?.name ?? "—" })}</li>
               <li><strong class="pick">{t("player.micStep2", { device: micHint.paired_input })}</strong></li>
             </ol>
             <p class="aside-note">{t("player.micNotHere")}</p>
-            {#if devices.find((d) => d.id === cfg.player_device)?.is_default}
+            {#if devices.find((d) => d.id === cfg!.player_device)?.is_default}
               <p class="warn-line">{t("player.cableIsDefault")}</p>
             {:else}
               <p class="warn-line">{t("player.dontChangeDefault")}</p>
@@ -564,6 +702,32 @@
           <div><strong>{t("settings.autoListen")}</strong><span>{t("settings.autoListenDesc")}</span></div>
         </label>
 
+        <label class="check">
+          <input type="checkbox" checked={cfg.remote_control}
+                 onchange={(e) => persist({ remote_control: e.currentTarget.checked })} />
+          <div><strong>{t("settings.remoteControl")}</strong>
+               <span>{t("settings.remoteControlDesc")}</span></div>
+        </label>
+
+        <div class="note">
+          <strong>{t("settings.paired")}</strong>
+          {#if Object.keys(cfg.paired ?? {}).length === 0}
+            <p class="fb">{t("settings.pairedNone")}</p>
+          {:else}
+            <ul class="paired">
+              {#each Object.entries(cfg.paired) as [id, p] (id)}
+                <li>
+                  <span>{p.name || id}</span>
+                  <button class="link" onclick={() => act(async () => {
+                    await unpair(id);
+                    cfg = await getConfig();
+                  })}>{t("settings.unpair")}</button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </div>
+
         <div class="note">
           <strong>{t("settings.limits")}</strong>
           <ul><li>{t("settings.limit1")}</li><li>{t("settings.limit2")}</li>
@@ -587,20 +751,20 @@
     {#if tab === "headset"}
       <div class="card tight">
         <h3>{t("headset.devices")}</h3>
-        <DevicePicker devices={headsetPlan.playChoices} kind="output"
-                      value={headsetPlan.play?.id ?? ""}
+        <DevicePicker devices={headsetPlan?.play_choices ?? []} kind="output"
+                      value={headsetPlan?.play?.id ?? ""}
                       onselect={(id) => persist({ player_device: id })}
                       label={headsetRole === "remote" ? t("device.cableLabel") : t("device.outputLabel")}
                       emptyText={t("device.none")} defaultText={t("device.default")} />
         {#if headsetRole === "local"}
-          <DevicePicker devices={headsetPlan.captureChoices} kind="input"
-                        value={headsetPlan.capture?.id ?? ""}
+          <DevicePicker devices={headsetPlan?.capture_choices ?? []} kind="input"
+                        value={headsetPlan?.capture?.id ?? ""}
                         onselect={(id) => persist({ server_device_input: id })}
                         label={t("device.micLabel")}
                         emptyText={t("device.none")} defaultText={t("device.default")} />
         {:else}
-          <DevicePicker devices={headsetPlan.captureChoices} kind="monitor"
-                        value={headsetPlan.capture?.id ?? ""}
+          <DevicePicker devices={headsetPlan?.capture_choices ?? []} kind="monitor"
+                        value={headsetPlan?.capture?.id ?? ""}
                         onselect={(id) => persist({ server_device_monitor: id })}
                         label={t("device.systemSource")}
                         emptyText={t("device.none")} defaultText={t("device.default")} />
@@ -730,6 +894,34 @@
   .note li { margin: 4px 0; line-height: 1.5; }
   .path { margin: 6px 0 0; }
   .path code { color: var(--text); font-size: 11px; user-select: text; }
+
+  .pair-code {
+    background: #1d2a44; border: 1px solid #2f4b7d; border-radius: 8px;
+    padding: 12px 14px; margin: 12px 0;
+  }
+  .pair-code .code {
+    font-size: 30px; letter-spacing: 6px; font-weight: 700;
+    font-variant-numeric: tabular-nums; margin: 8px 0 4px; user-select: all;
+  }
+  .pair-row { display: flex; gap: 8px; align-items: center; }
+  .pair-row button { width: auto; margin: 0; flex: 0 0 auto; }
+  .code-input {
+    width: 120px; font-size: 20px; letter-spacing: 4px; text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .paired { margin: 6px 0 0; padding-left: 0; list-style: none; }
+  .paired li { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .link {
+    width: auto; margin: 0; background: none; border: none; padding: 2px 0;
+    color: #7aa2f7; text-decoration: underline; cursor: pointer; font-size: 12px;
+  }
+
+  .remote-banner {
+    display: flex; align-items: center; gap: 12px; justify-content: space-between;
+    background: #1d2a44; border: 1px solid #2f4b7d; border-radius: 8px;
+    padding: 10px 14px; margin-bottom: 14px;
+  }
+  .remote-banner button { width: auto; margin: 0; flex: 0 0 auto; }
 
   .err {
     display: flex; align-items: center; gap: 10px;

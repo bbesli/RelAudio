@@ -16,6 +16,7 @@ mikrofon, iki yönde de, düşük gecikmeyle.
 | **Sistem sesini gönder** | Bilgisayarının sesini başka bir bilgisayarın hoparlöründen çal |
 | **Mikrofon gönder** | Bir makinedeki mikrofonu diğerine aktar |
 | **Dinle** | Gelen sesi bu bilgisayarın hoparlöründen duy |
+| **Kulaklık modu** | Tek düğmeyle karşı makinenin kulaklığını bu makinenin kulaklığı yap — mikrofon ve hoparlör, iki yönde birden |
 | **Mikrofon olarak kullan** | Uzaktaki mikrofonu Discord, Zoom, OBS'ye mikrofon olarak tanıt |
 
 Cihazlar ağda birbirini otomatik buluyor — IP yazmak yok. Uygulama sistem
@@ -145,6 +146,13 @@ onayla. Elle kural eklemek istersen, yönetici PowerShell'de:
 New-NetFirewallRule -DisplayName "RelAudio UDP 59101" -Direction Inbound -Protocol UDP -LocalPort 59101 -Action Allow
 ```
 
+**Uzaktan başlatmaya izin ver**'i açarsan tek düğmeli kurulum ayrıca TCP
+59100'e ihtiyaç duyuyor:
+
+```
+New-NetFirewallRule -DisplayName "RelAudio control TCP 59100" -Direction Inbound -Protocol TCP -LocalPort 59100 -Action Allow
+```
+
 ---
 
 ## Başlamadan önce
@@ -252,6 +260,12 @@ Yalnızca kulaklığın **takılı olmadığı** makinede gerekiyor.
 Yeniden başlattıktan sonra hoparlör listende `CABLE Input`, mikrofon listende
 `CABLE Output` görünmeli.
 
+> Makinende başka bir uygulamadan kalmış sanal ses aygıtı varsa (AudioRelay,
+> VoiceMeeter, Virtual Audio Cable…), RelAudio bu rehberin kurdurduğunu tercih
+> ediyor: önce `RelAudio-Cable`, sonra VB-CABLE, en sonda diğerleri. Sağdaki
+> **Aygıtlar** panelinden istediğini seçebilirsin; senin seçimin kaydediliyor
+> ve otomatik seçimin önüne geçiyor.
+
 **Linux:** kurulum gerekmez. Şunu bir kez çalıştır (yeniden başlatana kadar kalır):
 
 ```bash
@@ -303,7 +317,7 @@ mikrofonla karışır ve kendini duyarsın.
   `RelAudio-Cable` olmasın. Terminalden:
   `pactl set-default-sink <gerçek sink>` (listesi: `pactl list short sinks`).
 
-#### Adım 4 — İki makinede de Kulaklık modunu başlat
+#### Adım 4 — Tek düğmeye bas (ve bir kez eşleş)
 
 **Kulaklığın takılı olduğu makinede:**
 
@@ -313,30 +327,53 @@ mikrofonla karışır ve kendini duyarsın.
 4. **Kulaklık modunu başlat**'a bas.
 
 RelAudio bu makinenin **varsayılan** mikrofonunu ve **varsayılan** hoparlörünü
-seçiyor. Bu yüzden başlatmadan önce kulaklığı bu makinede varsayılan yap —
-yoksa dizüstünün dahili mikrofonunu gönderir, dahili hoparlöründen dinlersin.
-Sistem varsayılanını değiştirmek istemiyorsan sağdaki panelde **Aygıtlar**'ı
-aç ve kulaklığın mikrofonunu/hoparlörünü elle seç; seçimin kaydedilir ve
-otomatik seçimin önüne geçer.
+seçiyor. Bu yüzden kulaklığı burada varsayılan yap — yoksa dizüstünün dahili
+mikrofonunu gönderir, dahili hoparlöründen dinlersin. Sistem varsayılanını
+değiştirmek istemiyorsan sağdaki panelde **Aygıtlar**'ı aç ve kulaklığın
+mikrofonunu/hoparlörünü elle seç; seçimin kaydedilir ve öne geçer.
 
-**Uzak makinede:**
+**Yalnızca ilk seferde iki makineyi eşleştiriyorsun.** Başlatmak yerine bu
+makine ekranda **6 haneli bir kod** gösteriyor:
+
+```
+    WINDOWS-PC makinesinde bu kodu yaz
+              418  205
+```
+
+Karşı makineye geç, RelAudio'yu aç, **Kulaklık** sekmesinde **Karşı cihaz**
+olarak bu makineyi seç ve çıkan kutuya kodu yaz. Hepsi bu — iki makine bir
+anahtar paylaşıyor ve kod bir daha sorulmuyor. İlk makine bunu fark edip
+kendiliğinden başlıyor.
+
+> **Kod neden var.** Kod olmasa, ağındaki herhangi bir şey makinene "sesini
+> yakala ve bana gönder" diyebilirdi. Eşleştirme, bunu yalnızca senin bilerek
+> tanıştırdığın makinelerin yapabilmesi demek. Kod 3 dakika geçerli ve 5 yanlış
+> denemede yanıyor. Eşleşilmiş cihazları **Ayarlar**'da görüp kaldırabilirsin.
+>
+> Dürüst sınır: eşleştirme alışverişinin kendisi şifreli değil, yani o tek anı
+> yakalayabilen biri eşleşmeyi devralabilir. Ses akışı da şifresiz. Bu koruma,
+> makinene *bağlanabilen* birine karşı; ağını *dinleyebilen* birine karşı değil.
+
+#### Adım 5 — Bundan sonrası tek düğme
+
+Sonraki her oturum sadece şu: makineyi seç, **Kulaklık modunu başlat**'a bas.
+Karşı makine kendi yarısını kendiliğinden kuruyor ve panelde *"İki taraf da
+çalışıyor — WINDOWS-PC uzaktan başlatıldı"* yazıyor; toplantı uygulamasında
+seçeceğin mikrofonun adı da orada. **Durdur**'a basınca iki makine birden
+duruyor.
+
+Karşı taraf başlatılamadıysa sebebini yazan bir kutu çıkıyor ve bu makine
+çalışmaya devam ediyor — istersen gidip elle başlatabilirsin, eski yol hâlâ
+duruyor.
+
+**Yalnızca uzaktan başlatma çalışmadıysa** — uzak makineye git ve elle yap:
 
 1. **Kulaklık** sekmesi.
 2. **Uzak makine**'yi seç.
 3. **Karşı cihaz** → kulaklığın olduğu makineyi seç.
 4. **Kulaklık modunu başlat**'a bas.
 
-Başlatmadan önce RelAudio hangi iki aygıtı seçtiğini gösteriyor. Uzak makinede
-şöyle görünmeli:
-
-```
-Kaynak   Speakers (Realtek(R) Audio)          ← sistem sesi, sana gidiyor
-Çıkış    CABLE Input (VB-Audio Virtual Cable) ← mikrofonun, kabloya yazılıyor
-```
-
-İki farklı aygıt. Sayfanın başındaki kural bu, uygulanmış hâli.
-
-#### Adım 5 — Toplantı uygulamasına ne kullanacağını söyle
+#### Adım 6 — Toplantı uygulamasına ne kullanacağını söyle
 
 **Uzak** makinede, Discord / Zoom / Teams / Meet içinde:
 
@@ -440,6 +477,23 @@ Ses dinlemediğin bir yere gidiyor.
   ```
   Id'yi `relaudio-cli devices` ile al. Karşı taraf konuşurken çubuk oynamalı.
   (Linux'ta `--mic` o adda gerçek bir mikrofon arar ve `aygıt bulunamadı` der.)
+
+### "Tek düğme yalnızca bu makineyi başlattı"
+
+Panel hangisi olduğunu yazıyor.
+
+| Yazan | Ne yapmalı |
+|---|---|
+| eşleşmemişsin | Burada başlata bas, çıkan 6 haneli kodu karşı makinede yaz (Adım 4). |
+| uzaktan başlatmayı kabul etmiyor | Karşı makinede Ayarlar → **Uzaktan başlatmaya izin ver** kapatılmış. Geri aç. |
+| saatler birbirinden uzak | İmza zaman damgası taşıyor. İki makineden birinin saatini düzelt. |
+| zaten elle başlatılmış bir oturum var | Karşı makinede Durdur'a bas, tekrar dene. |
+| sanal ses kablosu kurulu değil | Orada VB-CABLE kur / null sink yarat (Adım 1). |
+| ulaşılamadı | İki makine mDNS'te birbirini görüyor ama TCP 59100'de göremiyor. Güvenlik duvarında izin ver — Windows'ta: `New-NetFirewallRule -DisplayName "RelAudio control" -Direction Inbound -Protocol TCP -LocalPort 59100 -Action Allow` |
+| sürümü uyumsuz | İki makinede de RelAudio'yu güncelle. |
+
+Seçtiğin makine uzaktan başlatmayı hiç kabul etmiyorsa RelAudio bunu düğmeye
+basmadan *önce*, aygıt listesinin altında söylüyor.
 
 ### "Toplantı uygulamam kabloyu mikrofon olarak göstermiyor"
 

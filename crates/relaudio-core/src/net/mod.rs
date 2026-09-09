@@ -1,12 +1,20 @@
 //! Ağ katmanı: gönderici, alıcı, jitter buffer.
 
+mod control;
 mod discovery;
 mod jitter;
+mod pairing;
 mod receiver;
 mod sender;
 
+pub use control::{
+    Auth as ControlAuth,
+    send as control_send, serve as control_serve, ControlServer, Reply as ControlReply,
+    Request as ControlRequest, CONTROL_PORT, CONTROL_VERSION,
+};
 pub use discovery::{device_name, Discovery, Peer, SERVICE_TYPE};
 pub use jitter::JitterBuffer;
+pub use pairing::{sign as sign_request, PairError, Pairing, CODE_TTL};
 pub use receiver::{receive_loop, ReceiverStats};
 pub use sender::{send_loop, SenderStats};
 

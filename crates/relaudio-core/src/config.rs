@@ -5,6 +5,7 @@
 //! tabloya uygun.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Ayar dosyasının yeri.
@@ -65,6 +66,44 @@ pub struct Config {
     pub server_device_input: String,
     /// Son seçilen hedef; eş kaybolursa geri düşmek için.
     pub server_target: String,
+
+    // — Kulaklık modu —
+    /// Son seçilen rol: "local" (kulaklık burada) veya "remote".
+    #[serde(default = "default_headset_role")]
+    pub headset_role: String,
+
+    /// Bu makine, **eşleşilmiş** cihazların uzaktan kulaklık modu
+    /// başlatmasına izin versin mi?
+    ///
+    /// Varsayılan açık. Açık olması tek başına kimseye yetki vermiyor:
+    /// eşleşmemiş bir istek reddediliyor (bkz. [`crate::net::Pairing`]).
+    /// Kapatmak, eşleşmiş cihazlar dahil her şeyi reddeder ve kontrol
+    /// sunucusu hiç bağlanmaz — dinlenen port, güvenlik duvarı sorusu ve
+    /// ilan edilen `cport` oluşmaz.
+    #[serde(default = "default_true")]
+    pub remote_control: bool,
+
+    /// Eşleşilmiş cihazlar: kalıcı kimlik → paylaşılan anahtar (hex).
+    ///
+    /// Kullanıcı bir kez 6 haneli kodu girdiğinde buraya yazılıyor ve bir
+    /// daha sorulmuyor. Silmek eşleştirmeyi bozar, güvenlik açığı yaratmaz.
+    #[serde(default)]
+    pub paired: BTreeMap<String, PairedPeer>,
+}
+
+/// Eşleşilmiş bir cihaz.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PairedPeer {
+    /// Paylaşılan anahtar, hex. Bu dosyayı okuyabilen biri eşleştirmeyi
+    /// devralabilir — dosya kullanıcının kendi ayar dizininde.
+    pub key: String,
+    /// Kullanıcıya gösterilecek ad; kimlik teknik ve okunaksız.
+    #[serde(default)]
+    pub name: String,
+}
+
+fn default_headset_role() -> String {
+    "local".into()
 }
 
 impl Default for Config {
@@ -81,6 +120,9 @@ impl Default for Config {
             server_device_monitor: String::new(),
             server_device_input: String::new(),
             server_target: String::new(),
+            headset_role: default_headset_role(),
+            remote_control: true,
+            paired: BTreeMap::new(),
         }
     }
 }
@@ -135,6 +177,36 @@ mod tests {
         assert_eq!(c.player_port, 59101);
         assert!(c.minimize_to_tray);
         assert_eq!(c.player_mode, "listen");
+        // Yeni alanlar eski dosyada yok; varsayılanları gelmeli.
+        assert_eq!(c.headset_role, "local");
+        // Uzaktan başlatma varsayılan açık ama tek başına yetki vermiyor:
+        // eşleşmemiş istek reddediliyor.
+        assert!(c.remote_control);
+        assert!(c.paired.is_empty(), "hiçbir cihaz kendiliğinden eşleşmiş olmamalı");
+    }
+
+    /// Kullanıcı uzaktan kontrolü kapattıysa bu açılışta geri açılmamalı.
+    #[test]
+    fn remote_control_stays_off_once_turned_off() {
+        let c: Config = toml::from_str("remote_control = false").unwrap();
+        assert!(!c.remote_control);
+        let back: Config = toml::from_str(&toml::to_string_pretty(&c).unwrap()).unwrap();
+        assert!(!back.remote_control);
+    }
+
+    /// Eşleştirmeler diskte kalmalı; aksi hâlde kullanıcı her açılışta kodu
+    /// tekrar giriyor ve özelliğin anlamı kalmıyor.
+    #[test]
+    fn pairings_survive_a_round_trip() {
+        let mut c = Config::default();
+        c.paired.insert(
+            "windows-pc-windows".into(),
+            PairedPeer { key: "ab".repeat(32), name: "WINDOWS-PC".into() },
+        );
+        let back: Config = toml::from_str(&toml::to_string_pretty(&c).unwrap()).unwrap();
+        assert_eq!(back.paired.len(), 1);
+        assert_eq!(back.paired["windows-pc-windows"].key, "ab".repeat(32));
+        assert_eq!(back.paired["windows-pc-windows"].name, "WINDOWS-PC");
     }
 
     #[test]

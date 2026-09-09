@@ -94,7 +94,16 @@ pub struct ServerSession {
 
 impl ServerSession {
     pub fn start(&self, device_id: &str, kind: DeviceKind, target: &str) -> Result<(), String> {
-        self.stop();
+        // Kilit baştan sona tutuluyor. Daha önce önce `stop()` çağrılıp kilit
+        // bırakılıyor, sonra thread açılıp 300 ms uyunuyor ve oturum ancak en
+        // sonda yayımlanıyordu. O aralıkta gelen bir `stop()` ortada bir şey
+        // göremiyor ve **kayboluyordu**: kullanıcı Durdur'a bastıktan sonra
+        // makine yayına devam ediyordu. Artık araya giren `stop()` kilitte
+        // bekliyor ve yayımlanan oturumu düzgün kapatıyor.
+        let mut guard = self.inner.lock().unwrap();
+        if let Some(mut r) = guard.take() {
+            r.shut_down();
+        }
         let stop = Stopper::new();
         let stats = Arc::new(SenderStats::default());
 
@@ -119,11 +128,15 @@ impl ServerSession {
         // "başladı" deyip sonra sessizce ölmemek için kısa süre bekliyoruz.
         std::thread::sleep(std::time::Duration::from_millis(300));
         if let Some(e) = err_slot.lock().unwrap().clone() {
+            // Thread hâlâ ayakta olabilir; bayrağı set edip toplamadan
+            // dönmek kaçak bir ses thread'i bırakırdı.
+            stop.stop();
+            let _ = handle.join();
             return Err(e);
         }
 
         let (device_id, device_name) = device_label(device_id, kind);
-        *self.inner.lock().unwrap() = Some(Running {
+        *guard = Some(Running {
             stop,
             stats,
             handle: Some(handle),
@@ -133,6 +146,7 @@ impl ServerSession {
             device_id,
             device_name,
         });
+        drop(guard);
         *self.error.lock().unwrap() = None;
         Ok(())
     }
@@ -141,6 +155,33 @@ impl ServerSession {
         if let Some(mut r) = self.inner.lock().unwrap().take() {
             r.shut_down();
         }
+    }
+
+    /// Yayın yapıyorsak hedef adres ("ip:port"), yoksa `None`.
+    ///
+    /// İki makinede aynı anda düğmeye basılırsa her iki taraf da kendi
+    /// yarısını başlatıp diğerine istek gönderiyor. Karşı taraf zaten *bize*
+    /// yayın yapıyorsa bu "meşgul" değil, istenen sonucun ta kendisi.
+    pub fn target(&self) -> Option<String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|r| r.died().is_none())
+            .map(|r| r.label.clone())
+    }
+
+    /// Fiilen yayın yapıyor muyuz?
+    ///
+    /// Ölmüş bir thread "çalışıyor" sayılmıyor: aygıt çıkarıldığında oturum
+    /// `fill` temizleyene kadar `inner` içinde duruyor ve o aralıkta uzaktan
+    /// gelen istek haksız yere "meşgul" cevabı alırdı.
+    pub fn is_running(&self) -> bool {
+        self.inner
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|r| r.died().is_none())
     }
 
     pub fn fill(&self, out: &mut StatsDto) {
@@ -187,7 +228,12 @@ pub struct PlayerSession {
 
 impl PlayerSession {
     pub fn start(&self, port: u16, device_id: &str, buffer_packets: usize) -> Result<(), String> {
-        self.stop();
+        // Kilidi baştan sona tutmanın gerekçesi [`ServerSession::start`] ile
+        // aynı: araya giren `stop()` kaybolmamalı.
+        let mut guard = self.inner.lock().unwrap();
+        if let Some(mut r) = guard.take() {
+            r.shut_down();
+        }
         let stop = Stopper::new();
         let stats = Arc::new(ReceiverStats::default());
         let (t_stop, t_stats) = (stop.clone(), stats.clone());
@@ -210,11 +256,13 @@ impl PlayerSession {
 
         std::thread::sleep(std::time::Duration::from_millis(300));
         if let Some(e) = err_slot.lock().unwrap().clone() {
+            stop.stop();
+            let _ = handle.join();
             return Err(e);
         }
 
         let (device_id, device_name) = device_label(&dev_for_label, DeviceKind::Output);
-        *self.inner.lock().unwrap() = Some(Running {
+        *guard = Some(Running {
             stop,
             stats,
             handle: Some(handle),
@@ -224,6 +272,7 @@ impl PlayerSession {
             device_id,
             device_name,
         });
+        drop(guard);
         *self.error.lock().unwrap() = None;
         Ok(())
     }
@@ -232,6 +281,20 @@ impl PlayerSession {
         if let Some(mut r) = self.inner.lock().unwrap().take() {
             r.shut_down();
         }
+    }
+
+    /// Şimdiye kadar alınan paket sayısı; çalışmıyorsa `None`.
+    ///
+    /// Yetim akış gözcüsü bunu kullanıyor: uzaktan başlatan makine çökerse
+    /// paket akışı durur ama bu taraf sonsuza kadar açık kalır. `fill`
+    /// çağırmak yerine ayrı bir okuma var, çünkü `fill` biriken hatayı
+    /// tüketiyor ve gözcü onu arayüzün elinden almamalı.
+    pub fn packets(&self) -> Option<u64> {
+        self.inner
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|r| r.stats.packets.load(Ordering::Relaxed))
     }
 
     pub fn fill(&self, out: &mut StatsDto) {

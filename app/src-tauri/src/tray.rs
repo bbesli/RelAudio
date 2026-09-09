@@ -53,14 +53,23 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
                 let state = app.state::<AppState>();
                 state.server.stop();
                 state.player.stop();
+                // Karşı taraf da dursun — yalnızca bizim durmamız onu yayında
+                // bırakıyordu — ve uzaktan başlatma izi silinsin, yoksa
+                // arayüzdeki "kulaklık modunu X başlattı" bandı artık var
+                // olmayan bir oturumu göstermeye devam ediyor.
+                crate::notify_peer_stopped_detached(app);
+                *state.started_by.lock().unwrap() = None;
                 // Eşler bu makineyi hâlâ "dinliyor" görüyordu; ilanı düzelt.
                 announce(&state, false);
             }
             "quit" => {
                 let state = app.state::<AppState>();
                 state.is_quitting.store(true, Ordering::Relaxed);
+                // Bağlı olduğumuz taraf bizsiz yayında kalmasın.
+                crate::notify_peer_stopped(&state);
                 state.server.stop();
                 state.player.stop();
+                *state.started_by.lock().unwrap() = None;
                 // Çıkmadan önce "artık dinlemiyorum" de ve mDNS kaydını kaldır;
                 // aksi hâlde eşler dakikalarca ölü bir hedefi listeliyor.
                 announce(&state, false);

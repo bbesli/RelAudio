@@ -17,6 +17,7 @@ microphone, in either direction, with low latency.
 | **Send microphone** | Stream a mic from one machine to another |
 | **Listen** | Hear the incoming audio on this computer's speakers |
 | **Use as microphone** | Make a remote mic appear as a microphone to Discord, Zoom, OBS… |
+| **Headset mode** | One button turns another machine's headset into this machine's headset — mic and speakers, both directions |
 
 Devices find each other automatically on the LAN — no IP addresses to type.
 The app lives in the system tray and keeps streaming when you close the window.
@@ -150,6 +151,13 @@ administrator PowerShell:
 New-NetFirewallRule -DisplayName "RelAudio UDP 59101" -Direction Inbound -Protocol UDP -LocalPort 59101 -Action Allow
 ```
 
+If you turn on **Allow remote start** (see [Scenario 3](#scenario-3--headset-mode-the-main-event)),
+the one-button setup also needs TCP 59100:
+
+```
+New-NetFirewallRule -DisplayName "RelAudio control TCP 59100" -Direction Inbound -Protocol TCP -LocalPort 59100 -Action Allow
+```
+
 ---
 
 ## Before you start
@@ -257,6 +265,12 @@ Only the machine **without** the headset needs one.
 After rebooting you should see `CABLE Input` in your speaker list and
 `CABLE Output` in your microphone list.
 
+> If another app has left its own virtual audio device behind (AudioRelay,
+> VoiceMeeter, Virtual Audio Cable…), RelAudio prefers the one this guide told
+> you to install — `RelAudio-Cable` first, then VB-CABLE, then anything else.
+> You can always override it in the **Devices** panel on the right; your choice
+> is saved and wins over the automatic pick.
+
 **Linux:** nothing to install. Run this once (it lasts until reboot):
 
 ```bash
@@ -307,7 +321,7 @@ cable instead, mix with the relayed microphone, and you would hear yourself.
   speakers, not `RelAudio-Cable`. From a terminal:
   `pactl set-default-sink <your real sink>` (list them with `pactl list short sinks`).
 
-#### Step 4 — Start Headset mode on both machines
+#### Step 4 — Press one button (and pair once)
 
 **On the machine where the headset is plugged in:**
 
@@ -317,13 +331,48 @@ cable instead, mix with the relayed microphone, and you would hear yourself.
 4. Press **Start headset mode**.
 
 RelAudio picks this machine's **default** microphone and **default** speakers.
-So before you start, make the headset the default on this machine — otherwise
-you will be sending your laptop's built-in mic and hearing its built-in
-speakers. If you'd rather not change the system default, open **Devices** in
-the panel on the right and choose the headset's mic and speakers by hand; your
-choice is saved and wins over the automatic pick.
+So make the headset the default here first — otherwise you send your laptop's
+built-in mic and hear its built-in speakers. If you'd rather not change the
+system default, open **Devices** in the panel on the right and pick the
+headset's mic and speakers by hand; your choice is saved and wins.
 
-**On the remote machine:**
+**The first time only, you pair the two machines.** Instead of starting, this
+machine shows a **6-digit code**:
+
+```
+    Type this code on WINDOWS-PC
+         418  205
+```
+
+Go to the other machine, open RelAudio, **Headset** tab, pick this machine in
+**Other device**, and type the code into the box that appears. That's it — the
+two machines share a key, and the code is never asked for again. The first
+machine notices and starts on its own.
+
+> **Why there's a code.** Without it, anything on your network could tell your
+> machine to capture audio and stream it away. Pairing means only the machines
+> you deliberately introduced to each other can do that. The code is good for 3
+> minutes and dies after 5 wrong guesses. You can see and remove paired devices
+> in **Settings**.
+>
+> Honest limit: the pairing exchange itself is not encrypted, so someone who can
+> capture that one moment of traffic could take over the pairing. The audio
+> stream is not encrypted either. This protects you from anyone who can *connect*
+> to your machine, not from someone who can *sniff* your network.
+
+#### Step 5 — From now on, one button
+
+Every session after that is just: pick the machine, press **Start headset mode**.
+The other machine starts its half automatically and the panel says *"Both sides
+running — WINDOWS-PC was started remotely"*, along with the microphone name to
+pick in your meeting app. Pressing **Stop** stops both machines.
+
+If the other machine could not be started you get a box saying exactly why, and
+this machine keeps running — so you can still go over and start it by hand, the
+old way, which continues to work.
+
+**Only if remote start did not work** — go to the remote machine and do it by
+hand:
 
 1. **Headset** tab.
 2. Choose **Remote machine**.
@@ -340,7 +389,7 @@ Output   CABLE Input (VB-Audio Virtual Cable) ← your mic, written into the cab
 
 Two different devices. That is the rule from the top of this page, enforced.
 
-#### Step 5 — Tell your meeting app what to use
+#### Step 6 — Tell your meeting app what to use
 
 On the **remote** machine, in Discord / Zoom / Teams / Meet:
 
@@ -446,6 +495,23 @@ The audio is going somewhere you're not listening.
   ```
   The bar should move when the other side speaks. (`--mic` on Linux would look
   for a real microphone with that name and report `aygıt bulunamadı`.)
+
+### "One button only started this machine"
+
+The panel tells you which of these it was.
+
+| What it says | What to do |
+|---|---|
+| not paired | Press start here, then type the 6-digit code on the other machine (Step 4). |
+| does not accept remote start | On the other machine: Settings → **Allow remote start** is switched off. Turn it back on. |
+| the clocks are too far apart | The signature carries a timestamp. Fix the system clock on either machine. |
+| already has a session started by hand | Press Stop on the other machine, then try again. |
+| has no virtual audio cable installed | Install VB-CABLE / create the null sink there (Step 1). |
+| could not be reached | The two machines can see each other over mDNS but not over TCP 59100. Allow it in the firewall — on Windows: `New-NetFirewallRule -DisplayName "RelAudio control" -Direction Inbound -Protocol TCP -LocalPort 59100 -Action Allow` |
+| version is incompatible | Update RelAudio on both machines. |
+
+If the machine you picked never accepted remote start, RelAudio says so *before*
+you press the button, right under the device list.
 
 ### "My meeting app doesn't show the cable as a microphone"
 

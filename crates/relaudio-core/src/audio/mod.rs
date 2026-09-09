@@ -9,6 +9,9 @@
 
 use crate::error::Result;
 
+mod headset;
+pub use headset::{plan as headset_plan, HeadsetPlan, HeadsetProblem, HeadsetRole};
+
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
@@ -156,6 +159,30 @@ pub fn paired_virtual_input(output_name: &str, devices: &[DeviceInfo]) -> Option
     best(DeviceKind::Input).or_else(|| best(DeviceKind::Monitor))
 }
 
+/// Aynı makinede birden fazla sanal kablo varsa hangisi tercih edilsin?
+///
+/// Küçük olan kazanıyor. Sıra, kullanıcının bizim rehberimizi izlemiş olma
+/// ihtimaline göre:
+///
+/// 0. **Bizim kendi kablomuz** (`RelAudio-Cable`) — README Linux'ta bunu
+///    yaratmayı söylüyor, yani varsa kullanıcı bilerek yaratmış.
+/// 1. **VB-CABLE** — README Windows'ta bunu kurmayı söylüyor.
+/// 2. Diğer satıcılar (Voicemeeter, BlackHole, AudioRelay'den kalanlar…).
+///
+/// Bu ayrım olmadan sıralama ada göre alfabetikti ve başka bir uygulamadan
+/// kalan bir sanal aygıt ("AudioRelay Mic&Sink") kendi kablomuzun önüne
+/// geçebiliyordu. Kullanıcı elle seçim yaptıysa o zaten bunu eziyor.
+pub fn virtual_vendor_rank(name: &str) -> u8 {
+    let n = name.to_lowercase();
+    if n.contains("relaudio") {
+        0
+    } else if n.contains("vb-audio") || n.contains("cable") {
+        1
+    } else {
+        2
+    }
+}
+
 /// Çok kanallı sanal kablo varyantlarını tanıyan desenler.
 ///
 /// VB-CABLE "CABLE Input" (2 kanal) yanında "CABLE In 16ch" gibi çok kanallı
@@ -260,6 +287,19 @@ mod tests {
             paired_virtual_input("CABLE Input (VB-Audio Virtual Cable)", &devices),
             Some("CABLE Output (VB-Audio Virtual Cable)".into())
         );
+    }
+
+    /// Başka bir uygulamadan kalan sanal aygıt, bizim rehberimizle
+    /// yaratılmış olanın önüne geçmemeli.
+    #[test]
+    fn our_own_cable_outranks_leftovers_from_other_apps() {
+        let mut names = vec!["AudioRelay Mic&Sink", "RelAudio-Cable", "VoiceMeeter Input"];
+        names.sort_by_key(|n| (virtual_vendor_rank(n), n.to_lowercase()));
+        assert_eq!(names[0], "RelAudio-Cable");
+        // Windows'ta rehber VB-CABLE diyor; o da yabancı satıcıları geçmeli.
+        let mut win = vec!["AudioRelay Mic&Sink", "CABLE Input (VB-Audio Virtual Cable)"];
+        win.sort_by_key(|n| (virtual_vendor_rank(n), n.to_lowercase()));
+        assert_eq!(win[0], "CABLE Input (VB-Audio Virtual Cable)");
     }
 
     #[test]
