@@ -348,17 +348,15 @@ pub fn log_path() -> std::path::PathBuf {
 
 fn init_logging() {
     let path = log_path();
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
-    // Sona ekle — sıfırlarsak önceki çökmenin izi kaybolur. Dosya çok
-    // büyürse baştan başla.
-    if std::fs::metadata(&path).map(|m| m.len() > 2_000_000).unwrap_or(false) {
-        let _ = std::fs::remove_file(&path);
-    }
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .ok();
+    // Boyut yazma anında denetleniyor: uygulama tepside günlerce açık
+    // kalabiliyor ve yalnızca açılışta bakmak diski sınırsız büyümeye açık
+    // bırakıyordu. Tavan aşılınca dosya silinmiyor, bir önceki kuşak olarak
+    // saklanıyor — çökmeden önceki kayıtlar kaybolmasın.
+    let file = relaudio_core::logging::CappedLog::open(
+        &path,
+        relaudio_core::logging::DEFAULT_CAP_BYTES,
+    )
+    .ok();
 
     let mut builder =
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"));

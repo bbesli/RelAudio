@@ -29,6 +29,23 @@ ekliyor. Daha azı gerekiyorsa tamponu ve aygıt periyodunu düşür.
 
 ---
 
+## Bu proje neden var
+
+RelAudio, **[AudioRelay](https://audiorelay.net)** kullandıktan sonra yazıldı —
+bu problemi yıllardır iyi çözen, cilalı, telefonları da destekleyen bir uygulama.
+Hakkını teslim edelim: bu iş akışının mümkün olduğunu bana o gösterdi. Olgun ve
+destekli bir ürün, Android/iOS istemcileriyle birlikte istiyorsan onu kullan ve
+parasını öde.
+
+Bu proje aynı fikrin açık kaynak bir okuması ve bilinçli olarak daha dar:
+Windows ↔ Linux masaüstleri, ve özellikle tek bir iş akışı — kulaklığın önündeki
+makinede takılıyken uzaktaki makineyi kullanmak. Var olma sebebi kaynağı
+istemem, o senaryonun uçtan uca çözülmesini istemem, ve zor kısımların (hangi
+kablo ucu, hangi varsayılan aygıt, neden kendini duyuyorsun) deneme yanılmaya
+bırakılmak yerine anlatılmasını istemem.
+
+Farklı kapsam, rakip değil. AudioRelay senin işini görüyorsa onu kullan.
+
 ## Kurulum
 
 ### Linux

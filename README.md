@@ -30,6 +30,23 @@ the jitter buffer contributes 40 ms by default and each machine's device buffer
 
 ---
 
+## Why this exists
+
+RelAudio was written after living with **[AudioRelay](https://audiorelay.net)** —
+a polished app that solves this problem well, has been doing it for years, and
+supports phones too. Credit where it's due: it's what showed me this workflow
+was possible at all, and if you want a mature, supported product with Android
+and iOS clients, go use it and pay for it.
+
+This project is an open-source take on the same idea, deliberately narrower:
+Windows ↔ Linux desktops, and one workflow in particular — driving a remote
+machine while your headset stays plugged into the one in front of you. It exists
+because I wanted the source, wanted that specific case handled end to end, and
+wanted the awkward parts (which cable end, which default device, why you hear
+yourself) explained rather than left to trial and error.
+
+Different scope, not a competitor. If AudioRelay does what you need, use it.
+
 ## Install
 
 ### Linux
