@@ -16,33 +16,33 @@ fn usage() -> ! {
         r#"RelAudio {ver}
 
 KULLANIM
-  relaudio devices
+  relaudio-cli devices
       Ses aygıtlarını listeler.
 
-  relaudio send <ip[:port]> [--device <id>] [--mic]
+  relaudio-cli send <ip[:port]> [--device <id>] [--mic]
       Bu makinenin sesini gönderir.
       Varsayılan: sistem sesi. --mic ile mikrofon gönderilir.
 
-  relaudio tone [--device <id>] [--seconds <n>]
+  relaudio-cli tone [--device <id>] [--seconds <n>]
       Çıkış aygıtına test tonu çalar. Ağı devre dışı bırakıp yalnızca
       çalma yolunu sınar. Ses duyulmuyorsa sorun ağda değil, çalmada.
 
-  relaudio level [--device <id>] [--mic]
+  relaudio-cli level [--device <id>] [--mic]
       Bir giriş aygıtındaki ses seviyesini canlı gösterir.
       Zincirin neresinin koptuğunu bulmak için: sanal kablonun mikrofon
       ucunu dinleyip sinyal gelip gelmediğini görürsün.
       Varsayılan: sistem sesi (monitor). --mic ile mikrofon girişleri.
 
-  relaudio recv [--port <n>] [--device <id>] [--buffer <paket>]
+  relaudio-cli recv [--port <n>] [--device <id>] [--buffer <paket>]
       Gelen sesi bu makinede çalar.
       --buffer: jitter buffer hedefi, paket cinsinden (1 paket = 5 ms).
                 Varsayılan 8 = 40 ms.
 
 ÖRNEK
   # A makinesinde:
-  relaudio recv
+  relaudio-cli recv
   # B makinesinde:
-  relaudio send 192.168.1.113
+  relaudio-cli send 192.168.1.113
 "#,
         ver = env!("CARGO_PKG_VERSION")
     );

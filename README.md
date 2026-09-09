@@ -51,36 +51,49 @@ Different scope, not a competitor. If AudioRelay does what you need, use it.
 
 ### Linux
 
-Needs `rustup`, Node.js, and PulseAudio/PipeWire development headers.
+You need Rust, Node.js, git, and the PulseAudio/PipeWire + WebKitGTK
+development headers. Run the block for your distribution:
 
 ```bash
 # Arch / CachyOS
-sudo pacman -S --needed base-devel rustup nodejs npm libpulse webkit2gtk-4.1 libayatana-appindicator
+sudo pacman -S --needed base-devel git rustup nodejs npm libpulse webkit2gtk-4.1 libayatana-appindicator
 rustup default stable
 
 # Debian / Ubuntu
-sudo apt install build-essential curl libpulse-dev libwebkit2gtk-4.1-dev \
+sudo apt install build-essential curl git libpulse-dev libwebkit2gtk-4.1-dev \
                  libayatana-appindicator3-dev librsvg2-dev nodejs npm
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # Rust is not in apt
+. "$HOME/.cargo/env"
 
 # Fedora
-sudo dnf install @development-tools pulseaudio-libs-devel webkit2gtk4.1-devel \
+sudo dnf install @development-tools git pulseaudio-libs-devel webkit2gtk4.1-devel \
                  libappindicator-gtk3-devel librsvg2-devel nodejs
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # Rust is not in the default repos
+. "$HOME/.cargo/env"
 ```
 
-Then build and install:
+Then build and install. All three build commands matter — the second one builds
+the diagnostic tool that every Troubleshooting command below uses:
 
 ```bash
 git clone https://github.com/bbesli/RelAudio.git
-cd RelAudio/app && npm install && npx tauri build --no-bundle
+cd RelAudio
+cargo build --release --bin relaudio-cli          # diagnostics: devices, tone, level
+cd app && npm install && npx tauri build --no-bundle
 cd .. && ./scripts/install-linux.sh
 ```
 
-This installs to `~/.local/bin/relaudio` and adds a **RelAudio** entry to your
-application menu. No root needed. Remove it with `./scripts/uninstall-linux.sh`.
+This installs the app to `~/.local/bin/relaudio`, the diagnostic tool to
+`~/.local/bin/relaudio-cli`, and adds a **RelAudio** entry to your application
+menu. No root needed. Remove it with `./scripts/uninstall-linux.sh`.
 
 > If `relaudio` isn't found in your shell, `~/.local/bin` isn't on your `PATH`.
-> Either launch it from the application menu or add:
-> `echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc`
+> Either launch it from the application menu, or add the directory to your
+> shell's startup file — `~/.bashrc` on most distributions, `~/.zshrc` if you
+> use zsh:
+> ```bash
+> echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && exec $SHELL
+> ```
 
 `.deb` and `.rpm` packages can be built with `npx tauri build` (AppImage
 generation currently fails — see [Known limits](#known-limits)).
@@ -99,6 +112,7 @@ You need:
    The `--add ...VCTools` part matters — without it you get Build Tools with no
    C++ compiler and the build fails with `link.exe not found`.
 3. **[Node.js](https://nodejs.org)**
+4. **[Git](https://git-scm.com/download/win)** — or `winget install --id Git.Git -e`
 
 Then:
 
@@ -110,8 +124,23 @@ powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
 
 The script checks prerequisites, loads the Visual Studio environment (including
 preview/Insiders editions, which Rust can't find on its own), installs npm
-dependencies and builds. Output:
-`app\src-tauri\target\release\relaudio-app.exe`
+dependencies and builds. It produces two programs:
+
+| File | What it is |
+|---|---|
+| `app\src-tauri\target\release\relaudio-app.exe` | the app you double-click |
+| `target\release\relaudio-cli.exe` | the diagnostic tool used in [Troubleshooting](#troubleshooting) |
+
+Neither is on your `PATH`. To run a Troubleshooting command, open PowerShell in
+the `RelAudio` folder you cloned and prefix it with `.\`:
+
+```
+cd C:\path\to\RelAudio
+.\target\release\relaudio-cli.exe devices
+```
+
+Below, `relaudio-cli` is written without the path for readability — on Windows
+substitute `.\target\release\relaudio-cli.exe`.
 
 **Firewall:** the first time you receive audio, Windows will ask to allow the
 app. Say yes for private networks. To add the rule manually, in an
@@ -235,6 +264,20 @@ pactl load-module module-null-sink sink_name=relaudio \
   media.class=Audio/Sink sink_properties=device.description=RelAudio-Cable
 ```
 
+> If that fails with `invalid argument`, you are on classic PulseAudio rather
+> than PipeWire; drop the `media.class` part:
+> ```bash
+> pactl load-module module-null-sink sink_name=relaudio \
+>   sink_properties=device.description=RelAudio-Cable
+> ```
+
+The cable's two ends are named differently from Windows. Your speaker list gets
+**RelAudio-Cable**; your microphone list gets **Monitor of RelAudio-Cable** —
+that second one is what you pick in your meeting app. To make it survive
+reboots, put the same line (without `pactl`) in
+`~/.config/pipewire/pipewire-pulse.conf.d/relaudio.conf`, or just re-run it
+after each boot.
+
 #### Step 2 — Turn off your remote desktop's audio
 
 **Do this.** Parsec, RDP, AnyDesk and friends capture the remote machine's
@@ -258,8 +301,11 @@ Why: RelAudio captures the system sound from a real output device and sends it
 to you. If the default were the cable, the machine's audio would go into the
 cable instead, mix with the relayed microphone, and you would hear yourself.
 
-Windows shortcut: press <kbd>Win</kbd>+<kbd>R</kbd>, type `mmsys.cpl`, Enter.
-**Playback** tab → click your speakers → **Set Default**.
+- **Windows:** press <kbd>Win</kbd>+<kbd>R</kbd>, type `mmsys.cpl`, Enter.
+  **Playback** tab → click your speakers → **Set Default**.
+- **Linux:** System Settings → Sound → set the output device to your real
+  speakers, not `RelAudio-Cable`. From a terminal:
+  `pactl set-default-sink <your real sink>` (list them with `pactl list short sinks`).
 
 #### Step 4 — Start Headset mode on both machines
 
@@ -269,6 +315,13 @@ Windows shortcut: press <kbd>Win</kbd>+<kbd>R</kbd>, type `mmsys.cpl`, Enter.
 2. Choose **Headset is on this machine**.
 3. **Other device** → pick the remote machine.
 4. Press **Start headset mode**.
+
+RelAudio picks this machine's **default** microphone and **default** speakers.
+So before you start, make the headset the default on this machine — otherwise
+you will be sending your laptop's built-in mic and hearing its built-in
+speakers. If you'd rather not change the system default, open **Devices** in
+the panel on the right and choose the headset's mic and speakers by hand; your
+choice is saved and wins over the automatic pick.
 
 **On the remote machine:**
 
@@ -291,8 +344,10 @@ Two different devices. That is the rule from the top of this page, enforced.
 
 On the **remote** machine, in Discord / Zoom / Teams / Meet:
 
-- **Microphone:** `CABLE Output (VB-Audio Virtual Cable)`
-  RelAudio tells you this name on screen after you press start.
+- **Microphone:** the capture end of the cable —
+  `CABLE Output (VB-Audio Virtual Cable)` if the remote machine is Windows,
+  `Monitor of RelAudio-Cable` if it is Linux.
+  RelAudio tells you the exact name on screen after you press start; use that.
 - **Speaker / output:** leave it as your normal speakers. Do not pick the cable.
   Its sound is already being relayed to you.
 
@@ -380,19 +435,25 @@ The audio is going somewhere you're not listening.
   ```
   If you don't hear a 440 Hz tone, the problem is the output device, not the network.
 - In Headset/microphone mode the audio goes into a *cable*, so you are not
-  supposed to hear it. Check the far end instead:
+  supposed to hear it. Check the far end instead. Run `relaudio-cli devices`
+  first to get the id, then:
   ```
+  # Windows — CABLE Output is a real microphone, so --mic is right
   relaudio-cli level --mic --device "<CABLE Output id>"
+
+  # Linux — the cable's capture end is a monitor, so leave --mic off
+  relaudio-cli level --device "<Monitor of RelAudio-Cable id>"
   ```
-  Get the id from `relaudio-cli devices`. The bar should move when the other
-  side speaks.
+  The bar should move when the other side speaks. (`--mic` on Linux would look
+  for a real microphone with that name and report `aygıt bulunamadı`.)
 
 ### "My meeting app doesn't show the cable as a microphone"
 
 - Did you **reboot** after installing VB-CABLE? It is not fully registered
   until you do.
-- You are probably looking at a list of speakers. `CABLE Output` is a
-  microphone; it appears under microphone/input settings, never under speakers.
+- You are probably looking at a list of speakers. The capture end of the cable
+  — `CABLE Output` on Windows, `Monitor of RelAudio-Cable` on Linux — appears
+  under microphone/input settings, never under speakers.
 - Some apps cache their device list — restart the meeting app.
 
 ### Other

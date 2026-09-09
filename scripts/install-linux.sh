@@ -5,7 +5,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 GUI="$ROOT/app/src-tauri/target/release/relaudio-app"
-CLI="$ROOT/target/release/relaudio"
+CLI="$ROOT/target/release/relaudio-cli"
 
 if [ ! -x "$GUI" ]; then
   echo "No built application found. First run:"
@@ -20,7 +20,7 @@ install -Dm755 "$GUI" "$HOME/.local/bin/relaudio"
 if [ -x "$CLI" ]; then
   install -Dm755 "$CLI" "$HOME/.local/bin/relaudio-cli"
 else
-  echo "Note: CLI not built (cargo build --release --bin relaudio) — skipping relaudio-cli"
+  echo "Note: CLI not built — run  cargo build --release --bin relaudio-cli  to get the diagnostic tool"
 fi
 install -Dm644 "$ROOT/app/src-tauri/icons/128x128.png" \
   "$HOME/.local/share/icons/hicolor/128x128/apps/relaudio.png"

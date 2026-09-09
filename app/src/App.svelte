@@ -229,21 +229,31 @@
   }
 
   /** Seçilen role göre (yakalama, çalma) aygıtlarını çözer. */
+  /** Kayıtlı seçim hâlâ geçerliyse onu kullan, değilse otomatik seç. */
+  function preferSaved(saved: string, list: Device[]): Device | undefined {
+    return list.find((d) => d.id === saved) ?? pick(list);
+  }
+
   function headsetDevices(role: HeadsetRole):
-    { capture?: Device; play?: Device; kind: "input" | "monitor"; error?: string } {
+    { capture?: Device; play?: Device; kind: "input" | "monitor"; error?: string;
+      captureChoices: Device[]; playChoices: Device[] } {
     if (role === "local") {
-      const capture = pick(physicalMics);
-      const play = pick(physicalOutputs);
-      if (!play) return { kind: "input", error: t("headset.needPhysical") };
-      return { capture, play, kind: "input" };
+      const playChoices = physicalOutputs;
+      const captureChoices = physicalMics;
+      const capture = preferSaved(cfg?.server_device_input ?? "", captureChoices);
+      const play = preferSaved(cfg?.player_device ?? "", playChoices);
+      if (!play) return { kind: "input", error: t("headset.needPhysical"), captureChoices, playChoices };
+      return { capture, play, kind: "input", captureChoices, playChoices };
     }
-    const play = cables[0];
-    if (!play) return { kind: "monitor", error: t("headset.needCable") };
-    // Kabloya yazıp aynı kabloyu yakalamak döngü kurar; fiziksel çıkışın
-    // monitörünü seç.
-    const capture = pick(physicalMonitors.filter((m) => !m.id.startsWith(play.id)));
-    if (!capture) return { kind: "monitor", error: t("headset.needPhysical") };
-    return { capture, play, kind: "monitor" };
+    const playChoices = cables;
+    const play = preferSaved(cfg?.player_device ?? "", playChoices);
+    if (!play) return { kind: "monitor", error: t("headset.needCable"), captureChoices: [], playChoices };
+    // Kabloya yazıp aynı kabloyu yakalamak döngü kurar; kablonun kendi
+    // monitörü kaynak listesinden elenir.
+    const captureChoices = physicalMonitors.filter((m) => !m.id.startsWith(play.id));
+    const capture = preferSaved(cfg?.server_device_monitor ?? "", captureChoices);
+    if (!capture) return { kind: "monitor", error: t("headset.needPhysical"), captureChoices, playChoices };
+    return { capture, play, kind: "monitor", captureChoices, playChoices };
   }
 
   const headsetPlan = $derived(headsetDevices(headsetRole));
@@ -450,7 +460,6 @@
           <label class="field">
             <span class="lbl">{t("player.port")}</span>
             <input type="number" value={cfg.player_port} min="1024" max="65535"
-                   disabled={stats?.player_running}
                    oninput={(e) => {
                      const v = clampInt(e.currentTarget.value, 1024, 65535);
                      if (v !== null) persist({ player_port: v });
@@ -459,7 +468,6 @@
           <label class="field">
             <span class="lbl">{t("player.buffer")} ({cfg.player_buffer * 5} ms)</span>
             <input type="number" value={cfg.player_buffer} min="2" max="60"
-                   disabled={stats?.player_running}
                    oninput={(e) => {
                      const v = clampInt(e.currentTarget.value, 2, 60);
                      if (v !== null) persist({ player_buffer: v });
@@ -576,7 +584,31 @@
   </main>
 
   <aside>
-    {#if tab === "player"}
+    {#if tab === "headset"}
+      <div class="card tight">
+        <h3>{t("headset.devices")}</h3>
+        <DevicePicker devices={headsetPlan.playChoices} kind="output"
+                      value={headsetPlan.play?.id ?? ""}
+                      onselect={(id) => persist({ player_device: id })}
+                      label={headsetRole === "remote" ? t("device.cableLabel") : t("device.outputLabel")}
+                      emptyText={t("device.none")} defaultText={t("device.default")} />
+        {#if headsetRole === "local"}
+          <DevicePicker devices={headsetPlan.captureChoices} kind="input"
+                        value={headsetPlan.capture?.id ?? ""}
+                        onselect={(id) => persist({ server_device_input: id })}
+                        label={t("device.micLabel")}
+                        emptyText={t("device.none")} defaultText={t("device.default")} />
+        {:else}
+          <DevicePicker devices={headsetPlan.captureChoices} kind="monitor"
+                        value={headsetPlan.capture?.id ?? ""}
+                        onselect={(id) => persist({ server_device_monitor: id })}
+                        label={t("device.systemSource")}
+                        emptyText={t("device.none")} defaultText={t("device.default")} />
+        {/if}
+        <button onclick={refresh}>{t("device.refresh")}</button>
+      </div>
+
+    {:else if tab === "player"}
       <div class="card tight">
         <h3>{cfg.player_mode === "mic" ? t("device.virtualCable") : t("device.output")}</h3>
         <DevicePicker devices={outputChoices} kind="output" value={cfg.player_device}

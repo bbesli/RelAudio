@@ -138,14 +138,22 @@ pub fn paired_virtual_input(output_name: &str, devices: &[DeviceInfo]) -> Option
     if !looks_virtual(output_name) {
         return None;
     }
-    devices
-        .iter()
-        .filter(|d| d.kind == DeviceKind::Input)
-        .map(|d| (token_score(output_name, &d.name), d))
-        .filter(|(score, _)| *score > 0)
-        // Eşit puanda kanonik (stereo) ucu seç.
-        .max_by_key(|(score, d)| (*score, u8::MAX - virtual_output_rank(&d.name)))
-        .map(|(_, d)| d.name.clone())
+    let best = |kind: DeviceKind| {
+        devices
+            .iter()
+            .filter(|d| d.kind == kind)
+            .map(|d| (token_score(output_name, &d.name), d))
+            .filter(|(score, _)| *score > 0)
+            // Eşit puanda kanonik (stereo) ucu seç.
+            .max_by_key(|(score, d)| (*score, u8::MAX - virtual_output_rank(&d.name)))
+            .map(|(_, d)| d.name.clone())
+    };
+    // Önce gerçek bir giriş ara (Windows'ta VB-CABLE böyle: CABLE Output).
+    // Bulunamazsa monitörlere bak: Linux'ta null sink'in mikrofon ucu bir
+    // monitor'dür ve uygulamalar onu mikrofon listesinde "Monitor of X"
+    // olarak gösterir. Yalnızca girişlere bakmak Linux'ta eşleşmeyi tamamen
+    // kaçırıyordu, dolayısıyla kullanıcıya ne seçeceği hiç söylenmiyordu.
+    best(DeviceKind::Input).or_else(|| best(DeviceKind::Monitor))
 }
 
 /// Çok kanallı sanal kablo varyantlarını tanıyan desenler.
@@ -223,6 +231,35 @@ mod tests {
     fn real_speakers_have_no_paired_microphone() {
         let d = real_windows_devices();
         assert_eq!(paired_virtual_input("Speakers (Realtek(R) Audio)", &d), None);
+    }
+
+    /// Linux'ta sanal kablo bir null sink; mikrofon ucu onun monitörü.
+    /// Uygulamalar bunu mikrofon listesinde görüyor, dolayısıyla kullanıcıya
+    /// söylenmesi gereken ad bu.
+    #[test]
+    fn falls_back_to_a_monitor_when_there_is_no_matching_input() {
+        let devices = vec![
+            dev("RelAudio-Cable", DeviceKind::Output),
+            dev("Monitor of RelAudio-Cable", DeviceKind::Monitor),
+            dev("Razer BlackShark Mono", DeviceKind::Input),
+        ];
+        assert_eq!(
+            paired_virtual_input("RelAudio-Cable", &devices),
+            Some("Monitor of RelAudio-Cable".into())
+        );
+    }
+
+    #[test]
+    fn a_real_input_still_wins_over_a_monitor() {
+        let devices = vec![
+            dev("CABLE Input (VB-Audio Virtual Cable)", DeviceKind::Output),
+            dev("CABLE Output (VB-Audio Virtual Cable)", DeviceKind::Input),
+            dev("Monitor of CABLE Input (VB-Audio Virtual Cable)", DeviceKind::Monitor),
+        ];
+        assert_eq!(
+            paired_virtual_input("CABLE Input (VB-Audio Virtual Cable)", &devices),
+            Some("CABLE Output (VB-Audio Virtual Cable)".into())
+        );
     }
 
     #[test]

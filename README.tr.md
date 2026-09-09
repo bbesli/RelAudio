@@ -50,37 +50,48 @@ Farklı kapsam, rakip değil. AudioRelay senin işini görüyorsa onu kullan.
 
 ### Linux
 
-`rustup`, Node.js ve PulseAudio/PipeWire geliştirme başlıkları gerekiyor.
+Rust, Node.js, git ve PulseAudio/PipeWire + WebKitGTK geliştirme başlıkları
+gerekiyor. Dağıtımına uyan bloğu çalıştır:
 
 ```bash
 # Arch / CachyOS
-sudo pacman -S --needed base-devel rustup nodejs npm libpulse webkit2gtk-4.1 libayatana-appindicator
+sudo pacman -S --needed base-devel git rustup nodejs npm libpulse webkit2gtk-4.1 libayatana-appindicator
 rustup default stable
 
 # Debian / Ubuntu
-sudo apt install build-essential curl libpulse-dev libwebkit2gtk-4.1-dev \
+sudo apt install build-essential curl git libpulse-dev libwebkit2gtk-4.1-dev \
                  libayatana-appindicator3-dev librsvg2-dev nodejs npm
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # Rust apt'ta yok
+. "$HOME/.cargo/env"
 
 # Fedora
-sudo dnf install @development-tools pulseaudio-libs-devel webkit2gtk4.1-devel \
+sudo dnf install @development-tools git pulseaudio-libs-devel webkit2gtk4.1-devel \
                  libappindicator-gtk3-devel librsvg2-devel nodejs
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # Rust varsayılan depolarda yok
+. "$HOME/.cargo/env"
 ```
 
-Sonra derle ve kur:
+Sonra derle ve kur. Üç derleme komutu da gerekli — ikincisi aşağıdaki bütün
+Sorun giderme komutlarının kullandığı teşhis aracını üretiyor:
 
 ```bash
 git clone https://github.com/bbesli/RelAudio.git
-cd RelAudio/app && npm install && npx tauri build --no-bundle
+cd RelAudio
+cargo build --release --bin relaudio-cli          # teşhis: devices, tone, level
+cd app && npm install && npx tauri build --no-bundle
 cd .. && ./scripts/install-linux.sh
 ```
 
-`~/.local/bin/relaudio` olarak kurulur ve uygulama menüsüne **RelAudio**
-girdisi eklenir. Yönetici yetkisi gerekmez. Kaldırmak için
-`./scripts/uninstall-linux.sh`.
+Uygulama `~/.local/bin/relaudio`, teşhis aracı `~/.local/bin/relaudio-cli`
+olarak kurulur ve uygulama menüsüne **RelAudio** girdisi eklenir. Yönetici
+yetkisi gerekmez. Kaldırmak için `./scripts/uninstall-linux.sh`.
 
 > `relaudio` komutu bulunamıyorsa `~/.local/bin` `PATH`'inde değildir.
-> Ya uygulama menüsünden aç, ya da şunu ekle:
-> `echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc`
+> Ya uygulama menüsünden aç, ya da kabuğunun açılış dosyasına ekle — çoğu
+> dağıtımda `~/.bashrc`, zsh kullanıyorsan `~/.zshrc`:
+> ```bash
+> echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && exec $SHELL
+> ```
 
 `.deb` ve `.rpm` paketleri `npx tauri build` ile üretilebilir (AppImage
 üretimi şu an başarısız — [Bilinen sınırlar](#bilinen-sınırlar)).
@@ -97,6 +108,7 @@ Gerekenler:
    `--add ...VCTools` kısmı önemli — onsuz Build Tools kurulur ama C++
    derleyicisi gelmez, derleme `link.exe not found` ile düşer.
 3. **[Node.js](https://nodejs.org)**
+4. **[Git](https://git-scm.com/download/win)** — ya da `winget install --id Git.Git -e`
 
 Sonra:
 
@@ -108,8 +120,23 @@ powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
 
 Betik gereksinimleri kontrol eder, Visual Studio ortamını yükler (Insiders
 sürümleri dahil — Rust bunları tek başına bulamıyor), npm bağımlılıklarını
-kurar ve derler. Çıktı:
-`app\src-tauri\target\release\relaudio-app.exe`
+kurar ve derler. İki program üretir:
+
+| Dosya | Nedir |
+|---|---|
+| `app\src-tauri\target\release\relaudio-app.exe` | çift tıklayacağın uygulama |
+| `target\release\relaudio-cli.exe` | [Sorun giderme](#sorun-giderme) bölümündeki teşhis aracı |
+
+İkisi de `PATH`'te değil. Bir Sorun giderme komutunu çalıştırmak için klonladığın
+`RelAudio` klasöründe PowerShell aç ve başına `.\` koy:
+
+```
+cd C:\yol\RelAudio
+.\target\release\relaudio-cli.exe devices
+```
+
+Aşağıda okunurluk için `relaudio-cli` yolsuz yazıldı — Windows'ta yerine
+`.\target\release\relaudio-cli.exe` yaz.
 
 **Güvenlik duvarı:** ilk kez ses alırken Windows izin soracak, özel ağlar için
 onayla. Elle kural eklemek istersen, yönetici PowerShell'de:
@@ -232,6 +259,20 @@ pactl load-module module-null-sink sink_name=relaudio \
   media.class=Audio/Sink sink_properties=device.description=RelAudio-Cable
 ```
 
+> `invalid argument` hatası alırsan PipeWire değil klasik PulseAudio
+> kullanıyorsun demektir; `media.class` kısmını at:
+> ```bash
+> pactl load-module module-null-sink sink_name=relaudio \
+>   sink_properties=device.description=RelAudio-Cable
+> ```
+
+Kablonun iki ucunun adı Windows'takinden farklı. Hoparlör listene
+**RelAudio-Cable**, mikrofon listene **Monitor of RelAudio-Cable** gelir —
+toplantı uygulamasında seçeceğin ikincisi. Yeniden başlatmalarda kalıcı olması
+için aynı satırı (`pactl` olmadan)
+`~/.config/pipewire/pipewire-pulse.conf.d/relaudio.conf` dosyasına koy, ya da
+her açılışta tekrar çalıştır.
+
 #### Adım 2 — Uzak masaüstünün sesini kapat
 
 **Bunu mutlaka yap.** Parsec, RDP, AnyDesk ve benzerleri uzak makinenin
@@ -255,8 +296,12 @@ Neden: RelAudio sistem sesini gerçek bir çıkış aygıtından yakalayıp sana
 gönderiyor. Varsayılan kablo olursa makinenin sesi kabloya gider, aktarılan
 mikrofonla karışır ve kendini duyarsın.
 
-Windows kısayolu: <kbd>Win</kbd>+<kbd>R</kbd> → `mmsys.cpl` → Enter.
-**Playback** sekmesi → hoparlörüne tıkla → **Set Default**.
+- **Windows:** <kbd>Win</kbd>+<kbd>R</kbd> → `mmsys.cpl` → Enter.
+  **Kayıttan Yürütme** (*Playback*) sekmesi → hoparlörüne tıkla →
+  **Varsayılan Yap** (*Set Default*).
+- **Linux:** Sistem Ayarları → Ses → çıkış aygıtını gerçek hoparlörün yap,
+  `RelAudio-Cable` olmasın. Terminalden:
+  `pactl set-default-sink <gerçek sink>` (listesi: `pactl list short sinks`).
 
 #### Adım 4 — İki makinede de Kulaklık modunu başlat
 
@@ -266,6 +311,13 @@ Windows kısayolu: <kbd>Win</kbd>+<kbd>R</kbd> → `mmsys.cpl` → Enter.
 2. **Kulaklık bu makinede**'yi seç.
 3. **Karşı cihaz** → uzak makineyi seç.
 4. **Kulaklık modunu başlat**'a bas.
+
+RelAudio bu makinenin **varsayılan** mikrofonunu ve **varsayılan** hoparlörünü
+seçiyor. Bu yüzden başlatmadan önce kulaklığı bu makinede varsayılan yap —
+yoksa dizüstünün dahili mikrofonunu gönderir, dahili hoparlöründen dinlersin.
+Sistem varsayılanını değiştirmek istemiyorsan sağdaki panelde **Aygıtlar**'ı
+aç ve kulaklığın mikrofonunu/hoparlörünü elle seç; seçimin kaydedilir ve
+otomatik seçimin önüne geçer.
 
 **Uzak makinede:**
 
@@ -288,8 +340,9 @@ Kaynak   Speakers (Realtek(R) Audio)          ← sistem sesi, sana gidiyor
 
 **Uzak** makinede, Discord / Zoom / Teams / Meet içinde:
 
-- **Mikrofon:** `CABLE Output (VB-Audio Virtual Cable)`
-  Başlata bastıktan sonra RelAudio bu adı ekranda yazıyor.
+- **Mikrofon:** kablonun yakalama ucu — uzak makine Windows'sa
+  `CABLE Output (VB-Audio Virtual Cable)`, Linux'sa `Monitor of RelAudio-Cable`.
+  Başlata bastıktan sonra RelAudio tam adı ekranda yazıyor; onu kullan.
 - **Hoparlör / çıkış:** normal hoparlörün kalsın. Kabloyu seçme.
   Onun sesi zaten sana aktarılıyor.
 
@@ -331,12 +384,14 @@ En sık gelen şikâyet ve neredeyse hiçbir zaman RelAudio sesi sana geri çalm
 
 2. **Uzak makinenin varsayılan hoparlörü kablo mu?** O zaman o makinenin
    çaldığı her şey kabloya gider, aktarılan mikrofonla karışır ve geri gelir.
-   → `mmsys.cpl` → Playback → gerçek hoparlörünü seç → **Set Default**.
+   → `mmsys.cpl` → **Kayıttan Yürütme** (*Playback*) → gerçek hoparlörünü seç
+   → **Varsayılan Yap** (*Set Default*).
 
 3. **Kablonun mikrofon ucunda "Bu aygıtı dinle" açık mı?** O ayar kabloyu
    doğrudan hoparlörüne bağlıyor.
-   → `mmsys.cpl` → **Recording** sekmesi → `CABLE Output` → Properties →
-   **Listen** sekmesi → *"Listen to this device"* işaretini kaldır.
+   → `mmsys.cpl` → **Kayıt** (*Recording*) sekmesi → `CABLE Output` →
+   **Özellikler** (*Properties*) → **Dinle** (*Listen*) sekmesi →
+   *"Bu aygıtı dinle"* işaretini kaldır.
 
 4. **Aynı toplantı iki makinede birden açık mı?** Discord ikisinde de aynı
    kanaldaysa biri aktardığın mikrofonu yayınlar, diğeri sana geri çalar.
@@ -377,14 +432,20 @@ Ses dinlemediğin bir yere gidiyor.
 - Kulaklık/mikrofon modunda ses bir **kabloya** gidiyor, yani duymaman normal.
   Karşı uca bak:
   ```
+  # Windows — CABLE Output gerçek bir mikrofon, --mic doğru
   relaudio-cli level --mic --device "<CABLE Output id>"
+
+  # Linux — kablonun yakalama ucu bir monitor, --mic koyma
+  relaudio-cli level --device "<Monitor of RelAudio-Cable id>"
   ```
   Id'yi `relaudio-cli devices` ile al. Karşı taraf konuşurken çubuk oynamalı.
+  (Linux'ta `--mic` o adda gerçek bir mikrofon arar ve `aygıt bulunamadı` der.)
 
 ### "Toplantı uygulamam kabloyu mikrofon olarak göstermiyor"
 
 - VB-CABLE kurduktan sonra **yeniden başlattın mı?** Öncesinde tam kayıtlı olmuyor.
-- Muhtemelen hoparlör listesine bakıyorsun. `CABLE Output` bir mikrofon;
+- Muhtemelen hoparlör listesine bakıyorsun. Kablonun yakalama ucu —
+  Windows'ta `CABLE Output`, Linux'ta `Monitor of RelAudio-Cable` —
   mikrofon/giriş ayarlarında çıkar, hoparlörlerde asla.
 - Bazı uygulamalar aygıt listesini önbelleğe alıyor — toplantı uygulamasını
   yeniden başlat.

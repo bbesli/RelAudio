@@ -29,6 +29,7 @@ export const LOCALES: Locale[] = [
 type Dict = Record<string, string>;
 
 const tr: Dict = {
+  "headset.devices": "Kulaklık aygıtları",
   "nav.headset": "Kulaklık",
   "headset.title": "Kulaklık modu",
   "headset.subtitle": "Bir makinedeki kulaklığı diğer makinenin kulaklığı yap: mikrofon ve hoparlör, iki yönde birden.",
@@ -157,6 +158,7 @@ const tr: Dict = {
 };
 
 const en: Dict = {
+  "headset.devices": "Headset devices",
   "nav.headset": "Headset",
   "headset.title": "Headset mode",
   "headset.subtitle": "Make one machine's headset act as the other machine's headset — microphone and speakers, both directions at once.",
@@ -285,6 +287,7 @@ const en: Dict = {
 };
 
 const es: Dict = {
+  "headset.devices": "Dispositivos de auriculares",
   "nav.headset": "Auriculares",
   "headset.title": "Modo auriculares",
   "headset.subtitle": "Haz que los auriculares de un equipo funcionen como los del otro: micrófono y altavoces, en ambos sentidos a la vez.",
@@ -380,6 +383,7 @@ const es: Dict = {
 };
 
 const de: Dict = {
+  "headset.devices": "Headset-Geräte",
   "nav.headset": "Headset",
   "headset.title": "Headset-Modus",
   "headset.subtitle": "Das Headset des einen Rechners als Headset des anderen nutzen — Mikrofon und Lautsprecher, beide Richtungen gleichzeitig.",
@@ -473,6 +477,7 @@ const de: Dict = {
 };
 
 const fr: Dict = {
+  "headset.devices": "Périphériques du casque",
   "nav.headset": "Casque",
   "headset.title": "Mode casque",
   "headset.subtitle": "Faites du casque d'une machine le casque de l'autre — microphone et haut-parleurs, dans les deux sens à la fois.",
@@ -566,6 +571,7 @@ const fr: Dict = {
 };
 
 const pt: Dict = {
+  "headset.devices": "Dispositivos de auscultadores",
   "nav.headset": "Auscultadores",
   "headset.title": "Modo auscultadores",
   "headset.subtitle": "Faça os auscultadores de uma máquina funcionarem como os da outra — microfone e colunas, nos dois sentidos ao mesmo tempo.",
@@ -659,6 +665,7 @@ const pt: Dict = {
 };
 
 const ru: Dict = {
+  "headset.devices": "Устройства гарнитуры",
   "nav.headset": "Гарнитура",
   "headset.title": "Режим гарнитуры",
   "headset.subtitle": "Гарнитура одной машины работает как гарнитура другой — микрофон и динамики, в обе стороны сразу.",
@@ -752,6 +759,7 @@ const ru: Dict = {
 };
 
 const zh: Dict = {
+  "headset.devices": "耳机设备",
   "nav.headset": "耳机",
   "headset.title": "耳机模式",
   "headset.subtitle": "让一台机器的耳机变成另一台机器的耳机——麦克风和扬声器，双向同时工作。",
@@ -837,6 +845,7 @@ const zh: Dict = {
 };
 
 const hi: Dict = {
+  "headset.devices": "हेडसेट डिवाइस",
   "nav.headset": "हेडसेट",
   "headset.title": "हेडसेट मोड",
   "headset.subtitle": "एक मशीन का हेडसेट दूसरी मशीन का हेडसेट बना दें — माइक्रोफ़ोन और स्पीकर, दोनों दिशाओं में एक साथ।",
@@ -922,6 +931,7 @@ const hi: Dict = {
 };
 
 const ar: Dict = {
+  "headset.devices": "أجهزة سماعة الرأس",
   "nav.headset": "سماعة الرأس",
   "headset.title": "وضع سماعة الرأس",
   "headset.subtitle": "اجعل سماعة جهاز تعمل كسماعة الجهاز الآخر — ميكروفون وسماعات، في الاتجاهين معًا.",
