@@ -246,10 +246,17 @@
 
   /** Kodumuz ekranda dururken karşı taraf onu kullanırsa kod kayboluyor.
    *  O an başlatmayı kendiliğinden tekrar deniyoruz: kullanıcı düğmeye
-   *  ikinci kez basmak zorunda kalmasın. */
+   *  ikinci kez basmak zorunda kalmasın.
+   *
+   *  Tetikleyici kodun **kaybolması**, yokluğu değil. "Kod yok" durumunda
+   *  yeniden denemek, kod hiç üretilemediğinde (rastgelelik alınamadı)
+   *  sonsuz döngü kuruyordu. */
+  let codeWasShowing = $state(false);
   $effect(() => {
     const showing = !!stats?.pairing_code;
-    if (remoteResult?.needs_pairing && !showing && !busy) {
+    const consumed = codeWasShowing && !showing;
+    codeWasShowing = showing;
+    if (consumed && remoteResult?.needs_pairing && !busy) {
       remoteResult = null;
       toggleHeadset();
     }
