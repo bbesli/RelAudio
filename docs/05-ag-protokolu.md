@@ -29,6 +29,8 @@ edilir. Güvenlik duvarı istisnası kurulum sırasında istenir (Windows'ta ilk
   caps=send,recv,mic      desteklenen roller
   codecs=pcm16,opus
   cport=59100             kontrol portu (0 = uzaktan başlatma kapalı)
+  pid=45d18c15…           kurulumun kalıcı kimliği (32 hex) — eşleştirme bununla
+                          yapılıyor; makine adına ve mDNS örnek adına bağlı değil
   aport=59101             ses portu
   id=<uuid>               kalıcı cihaz kimliği
   ```

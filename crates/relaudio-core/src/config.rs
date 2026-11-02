@@ -38,6 +38,15 @@ fn default_language() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// Bu kurulumun kalıcı kimliği. Eşleştirme anahtarları buna göre
+    /// saklanıyor ve mDNS'te `pid` olarak ilan ediliyor.
+    ///
+    /// Boşsa ilk açılışta üretilip yazılıyor. **Makine adından bağımsız:**
+    /// aynı ada sahip iki makine eskiden aynı kimliği alıyor ve eşleştirme
+    /// hiç kurulamıyordu.
+    #[serde(default)]
+    pub device_id: String,
+
     /// BCP-47 dil kodu ("tr", "en", ...). Boşsa sistem dili kullanılır.
     #[serde(default = "default_language")]
     pub language: String,
@@ -71,6 +80,24 @@ pub struct Config {
     /// Son seçilen rol: "local" (kulaklık burada) veya "remote".
     #[serde(default = "default_headset_role")]
     pub headset_role: String,
+
+    /// Kulaklık modunun aygıt seçimleri — Oynatıcı/Sunucu sekmelerinden
+    /// **ayrı**.
+    ///
+    /// Eskiden kulaklık modu seçtiği aygıtları `player_device` ve
+    /// `player_mode`'a yazıyordu. Uzak rolde bu, oynatıcının sanal kabloya
+    /// "mic" modunda ayarlanması demekti; oturum bitince `auto_listen`
+    /// oynatıcıyı **bu ayarlarla ve kaynak kilidi olmadan** yeniden açıyordu.
+    /// Makine böylece ağdaki herkesin toplantı mikrofonuna ses basabileceği
+    /// bir durumda kalıyor, bir sonraki açılışta da öyle başlıyordu.
+    #[serde(default)]
+    pub headset_local_play: String,
+    #[serde(default)]
+    pub headset_local_capture: String,
+    #[serde(default)]
+    pub headset_remote_play: String,
+    #[serde(default)]
+    pub headset_remote_capture: String,
 
     /// Bu makine, **eşleşilmiş** cihazların uzaktan kulaklık modu
     /// başlatmasına izin versin mi?
@@ -109,6 +136,7 @@ fn default_headset_role() -> String {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            device_id: String::new(),
             language: default_language(),
             minimize_to_tray: true,
             auto_listen: true,
@@ -121,6 +149,10 @@ impl Default for Config {
             server_device_input: String::new(),
             server_target: String::new(),
             headset_role: default_headset_role(),
+            headset_local_play: String::new(),
+            headset_local_capture: String::new(),
+            headset_remote_play: String::new(),
+            headset_remote_capture: String::new(),
             remote_control: true,
             paired: BTreeMap::new(),
         }
@@ -132,8 +164,8 @@ impl Config {
     /// bozuk bir ayar dosyası yüzünden uygulama açılmamalı.
     pub fn load() -> Self {
         let path = config_path();
-        match std::fs::read_to_string(&path) {
-            Ok(text) => match toml::from_str(&text) {
+        let mut cfg = match std::fs::read_to_string(&path) {
+            Ok(text) => match toml::from_str::<Self>(&text) {
                 Ok(c) => c,
                 Err(e) => {
                     log::warn!("ayar dosyası okunamadı ({}): {e} — varsayılanlar kullanılıyor", path.display());
@@ -141,7 +173,30 @@ impl Config {
                 }
             },
             Err(_) => Self::default(),
+        };
+        // Kimlik yoksa (ilk açılış ya da eski sürümden gelen dosya) üret ve
+        // hemen yaz: eşleştirme buna bağlı ve her açılışta değişirse
+        // kullanıcı kodu tekrar tekrar girmek zorunda kalır.
+        if cfg.device_id.is_empty() {
+            cfg.device_id = crate::net::new_device_id();
+            if cfg.device_id.is_empty() {
+                log::error!("cihaz kimliği üretilemedi — eşleştirme çalışmayacak");
+            } else {
+                log::info!("bu kuruluma kimlik atandı: {}", cfg.device_id);
+                // Eski, makine adına dayalı eşleşmeler yeni kimlikle
+                // eşleşmiyor; bırakılsalar kullanıcı "eşleşmiş görünüyor ama
+                // çalışmıyor" durumunda kalırdı.
+                if !cfg.paired.is_empty() {
+                    log::warn!(
+                        "{} eski eşleşme temizlendi — kimlik biçimi değişti, yeniden eşleşmek gerekiyor",
+                        cfg.paired.len()
+                    );
+                    cfg.paired.clear();
+                }
+                cfg.save();
+            }
         }
+        cfg
     }
 
     /// Diske yazar. Hata durumunda yalnızca loglar; ayar kaydedilememesi
@@ -156,7 +211,7 @@ impl Config {
         }
         match toml::to_string_pretty(self) {
             Ok(text) => {
-                if let Err(e) = std::fs::write(&path, text) {
+                if let Err(e) = write_private(&path, text.as_bytes()) {
                     log::warn!("ayarlar yazılamadı: {e}");
                 }
             }
@@ -165,9 +220,72 @@ impl Config {
     }
 }
 
+/// Dosyayı yalnızca sahibinin okuyabileceği şekilde yazar.
+///
+/// Ayar dosyası eşleştirme anahtarlarını içeriyor: okuyabilen biri o
+/// eşleşmeyi devralıp karşı makineye "sesini gönder" diyebilir. Linux'ta
+/// `std::fs::write` umask'a göre genelde 0644 açıyor, yani makinedeki diğer
+/// kullanıcılar dosyayı okuyabiliyordu. Windows'ta `%APPDATA%` zaten
+/// kullanıcıya özel ACL'li.
+///
+/// Önce geçici dosyaya yazıp yerine taşınıyor: yazma ortasında çökme ya da
+/// eşzamanlı ikinci yazma dosyayı yarım bırakmasın.
+fn write_private(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let tmp = path.with_extension("toml.tmp");
+    {
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut f = opts.open(&tmp)?;
+        f.write_all(data)?;
+        f.sync_all()?;
+    }
+    // Daha önce geniş izinlerle yazılmış bir dosya varsa onu da daralt.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+    }
+    std::fs::rename(&tmp, path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Eşleştirme anahtarları bu dosyada; başka kullanıcılar okuyamamalı.
+    #[cfg(unix)]
+    #[test]
+    fn the_config_file_is_private_to_its_owner() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("relaudio-cfg-perm-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        // Önce geniş izinli bir dosya bırak: eski sürümün yazdığı gibi.
+        std::fs::write(&path, b"x").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        write_private(&path, b"language = \"tr\"").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "ayar dosyası 0600 olmalı, {mode:o} bulundu");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Yerine taşıma iki platformda da var olan dosyanın üstüne yazabilmeli.
+    #[test]
+    fn writing_twice_replaces_the_file() {
+        let dir = std::env::temp_dir().join(format!("relaudio-cfg-twice-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        write_private(&path, b"a = 1").unwrap();
+        write_private(&path, b"a = 2").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "a = 2");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn missing_fields_fall_back_to_defaults() {

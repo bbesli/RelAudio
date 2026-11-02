@@ -43,7 +43,7 @@
   .waiting { font-size: 11px; color: var(--dim); font-style: italic; }
   .bars { display: flex; gap: 2px; height: 22px; }
   .seg {
-    flex: 1; border-radius: 2px; background: var(--panel-2);
+    flex: 1; border-radius: 2px; background: var(--surface-3);
     transition: background 80ms linear;
   }
   .seg.on { background: var(--ok); }

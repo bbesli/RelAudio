@@ -28,16 +28,25 @@ export interface Stats {
   player_late: number;
   player_underruns: number;
   player_dropped: number;
+  /** Oturumun karşı ucundan gelmediği için atılan paketler. */
+  player_foreign: number;
   player_buffer_ms: number;
   player_peak: number;
   player_device_name: string;
   server_device_name: string;
   feedback_loop: boolean;
+  /** Kulaklık modu açık mı? (Rust tarafında açıkça tutuluyor.) */
+  headset_active: boolean;
+  /** Bu makinenin uzaktan başlattığı karşı taraf ve oradaki mikrofon. */
+  linked_peer: string | null;
+  linked_paired_mic: string | null;
   /** Kulaklık modu bu makinede uzaktan başlatıldıysa: kim başlattı. */
   started_by: { name: string; address: string } | null;
   /** Ekranda gösterilecek eşleştirme kodu ve kalan saniye. */
   pairing_code: string | null;
   pairing_seconds: number;
+  /** Eşleşilmiş cihazların kurulum kimlikleri. */
+  paired_ids: string[];
 
   last_error: string | null;
 }
@@ -67,6 +76,8 @@ export interface Peer {
   listening: boolean;
   /** Eş tek düğmeyle uzaktan başlatılabiliyor mu? */
   can_remote_start: boolean;
+  /** Eşin kalıcı kurulum kimliği; eşleştirme bunun üzerinden. */
+  device_id: string;
 }
 
 export const getPeers = () => invoke<Peer[]>("peers");
@@ -115,9 +126,11 @@ export interface HeadsetStartResult {
 export const pairWithPeer = (peer_id: string, code: string) =>
   invoke<string>("pair_with_peer", { peerId: peer_id, code });
 
+/** Bu makinenin eşleştirme kodu — karşı makinede yazılacak olan. */
+export const getPairingCode = () => invoke<string | null>("pairing_code");
 export const cancelPairing = () => invoke<void>("cancel_pairing");
-export const isPaired = (peer_id: string) => invoke<boolean>("is_paired", { peerId: peer_id });
-export const unpair = (peer_id: string) => invoke<void>("unpair", { peerId: peer_id });
+/** Eşleştirmeyi kaldırır. Argüman eşin kurulum kimliği. */
+export const unpair = (device_id: string) => invoke<void>("unpair", { deviceId: device_id });
 
 export const startHeadset = (role: HeadsetRole, peer_id: string, address: string) =>
   invoke<HeadsetStartResult>("start_headset", { args: { role, peer_id, address } });
@@ -137,7 +150,12 @@ export interface Config {
   server_device_input: string;
   server_target: string;
   headset_role: string;
+  headset_local_play: string;
+  headset_local_capture: string;
+  headset_remote_play: string;
+  headset_remote_capture: string;
   remote_control: boolean;
+  /** Eşleşilmiş cihazlar. Anahtar alanı arayüze hep boş geliyor. */
   paired: Record<string, { key: string; name: string }>;
 }
 

@@ -1,0 +1,76 @@
+# Her push ve PR'da iki platformda da test.
+#
+# Eylemler etiketle değil commit SHA'sıyla sabitleniyor: bir etiket sonradan
+# başka bir commit'e taşınabilir, SHA taşınamaz. Ekim 2026'daki tedarik zinciri
+# saldırısı (LiteLLM) tam olarak bir yayın iş akışının ele geçirilmesiydi.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Linux bağımlılıkları
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libpulse-dev patchelf build-essential
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@2201cc584a476d1b508be977bbe4b7d1c7a52e9c # v2.9.3
+        with:
+          workspaces: |
+            . -> target
+            app/src-tauri -> target
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Çekirdek testleri
+        run: cargo test --locked
+
+      - name: Önyüz bağımlılıkları
+        working-directory: app
+        run: npm ci
+
+      - name: Çeviri bütünlüğü
+        run: node scripts/check-i18n.mjs
+
+      - name: Önyüz tip denetimi
+        working-directory: app
+        run: npx svelte-check --threshold warning
+
+      - name: Önyüz derlemesi
+        working-directory: app
+        run: npx vite build
+
+      - name: Uygulama katmanı testleri
+        working-directory: app/src-tauri
+        run: cargo test --locked

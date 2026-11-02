@@ -12,9 +12,11 @@ pub use control::{
     send as control_send, serve as control_serve, ControlServer, Reply as ControlReply,
     Request as ControlRequest, CONTROL_PORT, CONTROL_VERSION,
 };
-pub use discovery::{device_name, Discovery, Peer, SERVICE_TYPE};
+pub use discovery::{device_name, sanitize_display, Discovery, Peer, SERVICE_TYPE};
 pub use jitter::JitterBuffer;
-pub use pairing::{sign as sign_request, PairError, Pairing, CODE_TTL};
+pub use pairing::{
+    new_device_id, sign as sign_request, PairError, Pairing, CODE_TTL,
+};
 pub use receiver::{receive_loop, ReceiverStats};
 pub use sender::{send_loop, SenderStats};
 

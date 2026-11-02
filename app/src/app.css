@@ -1,54 +1,153 @@
+/*
+ * RelAudio tasarım belirteçleri.
+ *
+ * Bütün renkler buradaki değişkenlerden geliyor; bileşenler sabit renk
+ * yazmıyor. Böylece açık tema yalnızca değişkenleri değiştirerek çalışıyor
+ * ve sistem tercihini (prefers-color-scheme) izliyor.
+ */
 :root {
-  --bg: #17191c;
-  --panel: #1f2226;
-  --panel-2: #262a2f;
-  --line: #32373d;
-  --text: #e6e8ea;
-  --dim: #98a0a8;
-  --accent: #1d9bf0;
-  --ok: #2fbf71;
-  --warn: #e0a83c;
-  --bad: #e5534b;
+  --bg: #0e1014;
+  --surface: #161920;
+  --surface-2: #1c2029;
+  --surface-3: #242935;
+  --line: #2a2f3a;
+  --line-strong: #363c49;
+  --text: #e9ecf1;
+  --dim: #98a1b0;
+  --faint: #6b7381;
+
+  --accent: #5b8cff;
+  --accent-hover: #7aa1ff;
+  --accent-soft: rgba(91, 140, 255, 0.10);
+  --accent-line: rgba(91, 140, 255, 0.35);
+  --on-accent: #ffffff;
+
+  --ok: #34c77b;
+  --ok-soft: rgba(52, 199, 123, 0.12);
+  --warn: #f0b13d;
+  --warn-soft: rgba(240, 177, 61, 0.12);
+  --bad: #f05d5d;
+  --bad-soft: rgba(240, 93, 93, 0.12);
+
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.25), 0 8px 24px rgba(0, 0, 0, 0.18);
+  --ease: cubic-bezier(.2, .7, .2, 1);
+
   color-scheme: dark;
 }
 
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f6fa;
+    --surface: #ffffff;
+    --surface-2: #f6f8fb;
+    --surface-3: #eef1f6;
+    --line: #e1e5ec;
+    --line-strong: #cfd5df;
+    --text: #141821;
+    --dim: #5d6675;
+    --faint: #8a93a1;
+
+    --accent: #3b6ef5;
+    --accent-hover: #2d5ee0;
+    --accent-soft: rgba(59, 110, 245, 0.08);
+    --accent-line: rgba(59, 110, 245, 0.30);
+
+    --ok: #18a05d;
+    --ok-soft: rgba(24, 160, 93, 0.10);
+    --warn: #b9780b;
+    --warn-soft: rgba(185, 120, 11, 0.10);
+    --bad: #d63c3c;
+    --bad-soft: rgba(214, 60, 60, 0.09);
+
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 6px 20px rgba(16, 24, 40, 0.06);
+    color-scheme: light;
+  }
+}
+
 * { box-sizing: border-box; }
+
+html, body { height: 100%; }
 
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 14px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system,
+        "Inter", "Cantarell", "Noto Sans", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }
 
+h1, h2, h3 { letter-spacing: -0.01em; }
+
 button {
   font: inherit;
   color: inherit;
-  background: var(--panel-2);
+  background: var(--surface-2);
   border: 1px solid var(--line);
-  border-radius: 7px;
-  padding: 8px 14px;
+  border-radius: var(--r-sm);
+  padding: 9px 15px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 550;
+  transition: background 140ms var(--ease), border-color 140ms var(--ease),
+              transform 80ms var(--ease), box-shadow 140ms var(--ease);
 }
-button:hover:not(:disabled) { background: #2f343a; }
-button:disabled { opacity: 0.45; cursor: default; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-button.primary:hover:not(:disabled) { background: #3aa9f5; }
-button.danger { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 600; }
-button.danger:hover:not(:disabled) { background: #ec6a62; }
+button:hover:not(:disabled) { background: var(--surface-3); border-color: var(--line-strong); }
+button:active:not(:disabled) { transform: translateY(1px); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+button.primary {
+  background: var(--accent); border-color: transparent; color: var(--on-accent);
+  box-shadow: 0 1px 0 rgba(255,255,255,.12) inset, 0 4px 14px rgba(59,110,245,.25);
+}
+button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+button.danger {
+  background: var(--bad); border-color: transparent; color: #fff;
+  box-shadow: 0 4px 14px rgba(240,93,93,.22);
+}
+button.danger:hover:not(:disabled) { filter: brightness(1.08); }
+
+button.ghost { background: transparent; border-color: transparent; color: var(--dim); }
+button.ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+
+button.big { width: 100%; padding: 14px 18px; font-size: 15px; border-radius: var(--r-md); }
 
 select, input[type="text"], input[type="number"] {
   font: inherit;
   color: inherit;
-  background: var(--panel-2);
+  background: var(--surface-2);
   border: 1px solid var(--line);
-  border-radius: 7px;
-  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  padding: 9px 11px;
   width: 100%;
+  transition: border-color 140ms var(--ease), box-shadow 140ms var(--ease);
 }
+select:hover, input[type="text"]:hover, input[type="number"]:hover { border-color: var(--line-strong); }
+
 input:focus-visible, select:focus-visible, button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 1px var(--accent);
+}
+
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
+
+code { font-family: "Cascadia Mono", "JetBrains Mono", ui-monospace, Consolas, monospace; }
+
+/* Kaydırma çubuğu: koyu temada sistem varsayılanı göze batıyor. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 10px; border: 2px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: var(--line-strong); }
+::-webkit-scrollbar-track { background: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
 }

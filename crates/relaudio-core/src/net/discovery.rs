@@ -17,8 +17,18 @@ pub const SERVICE_TYPE: &str = "_relaudio._udp.local.";
 /// Ağda bulunan bir RelAudio örneği.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Peer {
-    /// Kalıcı kimlik (mDNS örnek adı). Aynı cihaz yeniden başlasa da aynı kalır.
+    /// mDNS örnek adı. Listede seçim yapmak için; **eşleştirmede
+    /// kullanılmaz** — mDNS çakışmada bu adı "... (2)" diye değiştiriyor.
     pub id: String,
+    /// Eşin ilan ettiği bütün IPv4 adresleri. `address` bunlardan biri.
+    ///
+    /// Alıcı kilidi (`receive_loop`'un `allow_from`'u) tek adrese bakarsa,
+    /// aynı ağa hem kablolu hem Wi-Fi bağlı bir makinenin paketleri diğer
+    /// arayüzden gelip **sessizce atılıyordu**.
+    pub addresses: Vec<String>,
+    /// Eşin kalıcı kurulum kimliği (TXT alanı `pid`). Eşleştirme anahtarları
+    /// buna göre saklanıyor. Eski bir sürümse boş gelir.
+    pub device_id: String,
     /// Kullanıcıya gösterilecek ad.
     pub name: String,
     pub address: String,
@@ -42,6 +52,8 @@ pub struct Discovery {
     port: std::sync::atomic::AtomicU16,
     /// İlan edilen kontrol portu. 59100 doluysa farklı olabiliyor.
     control_port: std::sync::atomic::AtomicU16,
+    /// Bu kurulumun kalıcı kimliği; TXT'de `pid` olarak ilan ediliyor.
+    device_id: String,
     self_name: String,
     /// Bu sürece özgü kimlik. Kendimizi eş listesinden ayıklamak için.
     instance_id: String,
@@ -85,6 +97,35 @@ fn pick_address(addrs: &[std::net::IpAddr], own_subnet: Option<&String>) -> Opti
         .or_else(|| addrs.first().map(|a| a.to_string()))
 }
 
+/// Ağdan gelen, ekranda gösterilecek bir metni sınırlar.
+///
+/// mDNS TXT kayıtları ağdaki herkes tarafından yazılabiliyor. Svelte HTML'i
+/// kaçırdığı için betik enjeksiyonu yok, ama iki şey kalıyordu:
+/// - **Yön denetim karakterleri** (U+202E "sağdan sola" vb.): bir eş adını
+///   ekranda başka bir cihazın adına benzetebilir — kullanıcı yanlış makineyle
+///   eşleşir.
+/// - **Uzunluk ve kontrol karakterleri**: açılır listeyi taşırır, log
+///   satırı uydurur.
+pub fn sanitize_display(raw: &str, max: usize) -> String {
+    let cleaned: String = raw
+        .chars()
+        .filter(|c| !c.is_control() && !is_bidi_control(*c))
+        .take(max)
+        .collect();
+    cleaned.trim().to_string()
+}
+
+/// Metnin görüntülenme yönünü değiştiren görünmez karakterler.
+fn is_bidi_control(c: char) -> bool {
+    matches!(
+        c,
+        '\u{200E}' | '\u{200F}'            // LRM, RLM
+        | '\u{202A}'..='\u{202E}'          // LRE, RLE, PDF, LRO, RLO
+        | '\u{2066}'..='\u{2069}'          // LRI, RLI, FSI, PDI
+        | '\u{061C}'                       // ALM
+    )
+}
+
 /// Bu makinenin kullanıcıya gösterilecek adı.
 pub fn device_name() -> String {
     hostname::get()
@@ -95,7 +136,7 @@ pub fn device_name() -> String {
 
 impl Discovery {
     /// Keşfi başlatır: kendini ilan eder ve diğerlerini dinlemeye başlar.
-    pub fn start(port: u16, control_port: u16) -> Result<Self> {
+    pub fn start(port: u16, control_port: u16, device_id: String) -> Result<Self> {
         let daemon = ServiceDaemon::new()
             .map_err(|e| Error::Stream(format!("could not start mDNS: {e}")))?;
 
@@ -158,14 +199,33 @@ impl Discovery {
                             let get = |k: &str| {
                                 info.get_property_val_str(k).unwrap_or_default().to_string()
                             };
+                            // TXT alanları ağdaki herkesin yazabildiği metin;
+                            // ekrana ve ayar dosyasına girmeden önce daraltılıyor.
+                            let name = sanitize_display(&get("name"), 48);
                             let peer = Peer {
-                                name: {
-                                    let n = get("name");
-                                    if n.is_empty() { inst.clone() } else { n }
+                                name: if name.is_empty() {
+                                    sanitize_display(&inst, 48)
+                                } else {
+                                    name
                                 },
-                                os: get("os"),
+                                os: sanitize_display(&get("os"), 16),
                                 listening: get("listening") == "1",
                                 control_port: get("cport").parse().unwrap_or(0),
+                                // Kimlik yalnızca hex olabilir; başka bir şey
+                                // geldiyse eş eşleştirilemez sayılıyor.
+                                device_id: {
+                                    let id = get("pid");
+                                    if id.len() == 32 && id.chars().all(|c| c.is_ascii_hexdigit()) {
+                                        id
+                                    } else {
+                                        String::new()
+                                    }
+                                },
+                                addresses: addrs
+                                    .iter()
+                                    .filter(|a| a.is_ipv4())
+                                    .map(|a| a.to_string())
+                                    .collect(),
                                 address: addr,
                                 port: info.get_port(),
                                 id: inst.clone(),
@@ -192,6 +252,7 @@ impl Discovery {
             instance,
             port: std::sync::atomic::AtomicU16::new(port),
             control_port: std::sync::atomic::AtomicU16::new(control_port),
+            device_id,
             self_name: name,
             instance_id,
         };
@@ -212,6 +273,7 @@ impl Discovery {
                 self.control_port.load(std::sync::atomic::Ordering::Relaxed).to_string(),
             ),
             ("iid".to_string(), self.instance_id.clone()),
+            ("pid".to_string(), self.device_id.clone()),
         ]
         .into_iter()
         .collect();
@@ -295,6 +357,19 @@ mod tests {
     fn falls_back_to_whatever_exists() {
         assert_eq!(pick_address(&[ip("fe80::1")], None).as_deref(), Some("fe80::1"));
         assert_eq!(pick_address(&[], None), None);
+    }
+
+    /// "WINDOWS-PC" gibi görünen ama aslında başka bir ad olan bir eş,
+    /// kullanıcıyı yanlış makineyle eşleştirebilirdi.
+    #[test]
+    fn display_names_lose_direction_overrides_and_control_characters() {
+        // U+202E sonrasını ters çevirir: ekranda "CP-SWODNIW" yerine
+        // "WINDOWS-PC" gibi okunabilir.
+        let spoof = "evil\u{202E}CP-SWODNIW";
+        assert_eq!(sanitize_display(spoof, 48), "evilCP-SWODNIW");
+        assert_eq!(sanitize_display("a\nb\tc", 48), "abc");
+        assert_eq!(sanitize_display(&"x".repeat(500), 48).len(), 48);
+        assert_eq!(sanitize_display("  Mutfak PC  ", 48), "Mutfak PC");
     }
 
     #[test]

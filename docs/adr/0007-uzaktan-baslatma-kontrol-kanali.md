@@ -133,8 +133,8 @@ ikisi de Tauri üzerinden zaten ağaçtaydı.
 
 **Eşleştirme diyaloğunu istek üzerine açmak** (karşı makinede "X eşleşmek
 istiyor" penceresi). Reddedildi: ağdaki herkese kurbanın ekranını öne
-getirtme ilkeli verirdi. Kod, isteği **alan** değil **paylaşan** tarafta ve
-yalnızca kullanıcı düğmeye bastığında çıkıyor.
+getirtme ilkeli verirdi. Kod, kullanıcı o makinede eşleşmemiş bir eşi
+**kendisi seçtiğinde** çıkıyor — hiçbir zaman ağdan gelen bir istek üzerine.
 
 **Kalıcı kiralı TCP bağlantısı.** Bağlantının kopması yetim akışı anında
 kapatırdı. Reddedildi: mesaj kimliği olmayan satır akışında STOP ile keepalive
@@ -143,3 +143,84 @@ birbirine karışıyor. Sayaç gözcüsü aynı işi daha az parça ile yapıyor
 **mDNS TXT üzerinden komut.** Yeni port açmazdı. Reddedildi: TXT ilanı
 gecikmeli ve idempotent değil; "başlat" gibi bir kenar tetikleyici için yanlış
 taşıma.
+
+## Revizyon — 0.2.0 (2026-11-02)
+
+İki Windows makinesiyle yapılan ilk gerçek denemede eşleştirme hiç
+kurulamadı. Log ve ayar dosyası sebebi gösterdi; aşağıdaki kararlar oradan
+çıktı.
+
+### Kimlik makine adından ayrıldı
+
+İlk sürümde kimlik `{hostname}-{os}` idi. İki makinenin adı aynıydı
+(`burakbesli`), dolayısıyla **kimlikleri de aynıydı**; mDNS çakışmayı çözmek
+için birinin örnek adını `burakbesli-windows (2)` yaptı. Bir taraf anahtarı
+`burakbesli-windows` altına yazdı, öbürü `burakbesli-windows2` diye aradı —
+eşleştirme sessizce hiç kurulmadı ve uzaktan başlatma hep reddedildi.
+
+Karar: her kurulum ilk açılışta 16 baytlık rastgele bir kimlik üretip ayar
+dosyasına yazıyor ve mDNS TXT'de `pid` olarak ilan ediyor. Eşleşmeler bu
+kimliğe göre saklanıyor. Eski, ad tabanlı eşleşmeler geçişte temizleniyor
+(log'da yazılıyor); kullanıcı bir kez yeniden eşleşiyor.
+
+### Kod iki makinede de görünüyor
+
+İlk sürümde kod yalnızca "başlat"a basılan makinede çıkıyordu. Kullanıcı kodu
+girmek için karşı makineye gittiğinde orada okuyacak bir kod yoktu; "eşleştir
+diyorum, diğer pc'de kod çıkmıyor" şikâyeti buydu. Artık kullanıcı eşleşmemiş
+bir eşi seçtiğinde **o makine kendi kodunu gösteriyor ve karşının kodunu
+kabul ediyor** — hangi yönden girildiği fark etmiyor. Eşleşmemişken "başlat"
+hiçbir şey başlatmıyor (eskiden yerel yarıyı açıp kimsenin dinlemediği bir
+makineye mikrofon akıtıyordu).
+
+Kodlar artık sürekli canlı olabildiği için kod başına 5 deneme sınırına ek
+olarak **dakikada toplam 10 yanlış deneme** sınırı var; yanan kodun yerine
+yenisi üretilince sayaç sıfırlanmıyor.
+
+### Ses yolu kilitlendi
+
+Eşleştirme yalnızca kontrol kanalını koruyordu. Alıcı UDP 59101'e gelen her
+paketi kabul ediyor ve yeni SSRC görünce oturumu ona devrediyordu; uzak rolde
+bu ses sanal kabloya, yani **toplantı uygulamasının mikrofonuna** gidiyordu.
+Kulaklık oturumunda alıcı artık yalnızca karşı ucun adreslerinden ses kabul
+ediyor (eşin ilan ettiği bütün IPv4 adresleri — kablolu + Wi-Fi bağlı bir
+makine ikisinden de gönderebiliyor). Atılan paketler sayılıp gösteriliyor.
+Sınır: UDP kaynak adresi sahtelenebilir; buna karşı paket başına imza gerekir.
+
+### Arayüz eşleşmeleri ve kimliği yazamıyor
+
+`set_config` arayüzden bütün ayarı alıp diske yazıyordu. Kodu gösteren
+makinede anahtar Rust tarafında kaydediliyor, ardından arayüzün eski kopyası
+bir sonraki ayar değişikliğinde onu **siliyordu**. Artık `device_id` ve
+`paired` yalnızca Rust tarafında yazılıyor; `get_config` anahtarları
+webview'e hiç göndermiyor.
+
+### Kulaklık aygıtları ayrı alanlarda
+
+Kulaklık modu seçtiği aygıtları Oynatıcı sekmesinin ayarlarına (`player_mode`
+= mic, `player_device` = kablo) yazıyordu. Oturum bitince `auto_listen`
+oynatıcıyı bu ayarlarla ve **kilitsiz** yeniden açıyor, makine ağdaki herkesin
+toplantı mikrofonuna ses basabileceği bir durumda kalıyordu. Kulaklık
+aygıtları artık `headset_{local,remote}_{play,capture}` alanlarında.
+
+### "Black October" denetimi
+
+Ekim 2026'daki olay kümesinden (bkz. Wikipedia: *Black October (information
+security)*) RelAudio ile örtüşen iki başlık denetlendi:
+
+- **Zayıf rastgelelik** (eMudhra): kod, anahtar, nonce ve kurulum kimliği
+  `getrandom` (işletim sisteminin CSPRNG'si) ile üretiliyor; zaman ya da süreç
+  kimliğinden türetilen güvenlik değeri yok.
+- **Tedarik zinciri** (LiteLLM): `cargo audit` ve `npm audit` çalıştırıldı.
+  `wasapi` 0.24 (RUSTSEC-2026-0332, `WAVEFORMATEX` sonunu aşarak okuma)
+  0.26'ya, `tokio` 1.53.1 (RUSTSEC-2026-0386) 1.54.1'e, `vite` 6.4.5'e
+  yükseltildi. Kalan: Tauri'nin Linux GTK yığınındaki `glib` 0.18
+  (RUSTSEC-2024-0429; düzeltme 0.20'de, Tauri yükseltmesine bağlı) ve
+  yalnızca geliştirme modundaki `deepmerge` (düzeltmesi yayınlanmamış).
+  Sürüm iş akışındaki eylemler commit SHA'sına sabitlendi.
+
+Ek olarak: webview için katı bir CSP açıldı (önceden `null`), `opener` izni
+yalnızca kullanılan adreslere daraltıldı, ayar dosyası Linux'ta 0600 ile ve
+geçici dosya + yerine taşıma ile yazılıyor, ağdan gelen adlar Unicode yön
+denetim karakterlerinden arındırılıyor (U+202E ile bir ad başka bir cihazın
+adı gibi okunabiliyordu).

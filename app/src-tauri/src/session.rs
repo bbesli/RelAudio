@@ -227,7 +227,13 @@ pub struct PlayerSession {
 }
 
 impl PlayerSession {
-    pub fn start(&self, port: u16, device_id: &str, buffer_packets: usize) -> Result<(), String> {
+    pub fn start(
+        &self,
+        port: u16,
+        device_id: &str,
+        buffer_packets: usize,
+        allow_from: Vec<std::net::IpAddr>,
+    ) -> Result<(), String> {
         // Kilidi baştan sona tutmanın gerekçesi [`ServerSession::start`] ile
         // aynı: araya giren `stop()` kaybolmamalı.
         let mut guard = self.inner.lock().unwrap();
@@ -247,7 +253,7 @@ impl PlayerSession {
         let handle = std::thread::Builder::new()
             .name("relaudio-player".into())
             .spawn(move || {
-                if let Err(e) = receive_loop(port, &dev, buf, t_stop, t_stats) {
+                if let Err(e) = receive_loop(port, &dev, buf, allow_from, t_stop, t_stats) {
                     log::error!("alım hatası: {e}");
                     *err_thread.lock().unwrap() = Some(e.to_string());
                 }
@@ -316,6 +322,7 @@ impl PlayerSession {
             out.player_late = s.late.load(Ordering::Relaxed);
             out.player_underruns = s.underruns.load(Ordering::Relaxed);
             out.player_dropped = s.dropped.load(Ordering::Relaxed);
+            out.player_foreign = s.foreign.load(Ordering::Relaxed);
             out.player_buffer_ms = s.buffer_depth.load(Ordering::Relaxed) * 5;
             out.player_peak = s.peak.load(Ordering::Relaxed);
             out.player_device_name = r.device_name.clone();
@@ -351,7 +358,7 @@ mod tests {
     #[test]
     fn player_start_reports_bad_device() {
         let p = PlayerSession::default();
-        let r = p.start(59998, "boyle-bir-aygit-yok", 8);
+        let r = p.start(59998, "boyle-bir-aygit-yok", 8, Vec::new());
         assert!(r.is_err());
         let mut stats = StatsDto::default();
         p.fill(&mut stats);

@@ -1,0 +1,99 @@
+# `v*` etiketi itildiğinde Windows ve Linux paketlerini derleyip **taslak**
+# bir GitHub sürümüne ekler. Taslak elle gözden geçirilip yayımlanır.
+#
+# Güvenlik:
+# - Eylemler commit SHA'sına sabit (etiketler taşınabilir; Ekim 2026'daki
+#   LiteLLM olayı bir yayın iş akışının ele geçirilmesiydi).
+# - Yazma izni yalnızca sürümü oluşturan işte, yalnızca `contents`.
+# - Bağımlılıklar kilit dosyalarından (`--locked`, `npm ci`).
+# - Paketlemeden önce testler ve çeviri denetimi koşuyor: kırık bir derleme
+#   sürüme girmesin.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            # AppImage, linuxdeploy hatası yüzünden derlenmiyor (README,
+            # Bilinen sınırlar); deb ve rpm çalışıyor.
+            bundles: deb,rpm
+            cli: relaudio-cli
+            cli_asset: relaudio-cli-linux-x86_64
+          - os: windows-latest
+            bundles: nsis,msi
+            cli: relaudio-cli.exe
+            cli_asset: relaudio-cli-windows-x86_64.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Linux bağımlılıkları
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libpulse-dev patchelf build-essential rpm
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Önyüz bağımlılıkları
+        working-directory: app
+        run: npm ci
+
+      - name: Testler
+        run: |
+          cargo test --locked
+          node scripts/check-i18n.mjs
+
+      - name: Teşhis aracı (relaudio-cli)
+        run: cargo build --release --locked --bin relaudio-cli
+
+      - name: Uygulama paketleri
+        uses: tauri-apps/tauri-action@1ddc7b49b13c3038297360482fcb3e058764d7c9 # v0.6.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: app
+          args: --bundles ${{ matrix.bundles }}
+          tagName: ${{ github.ref_name }}
+          releaseName: RelAudio ${{ github.ref_name }}
+          releaseBody: |
+            Windows: `RelAudio_*_x64-setup.exe` (önerilen) ya da `.msi`.
+            Linux: `.deb` (Debian/Ubuntu) ya da `.rpm` (Fedora).
+            Teşhis aracı `relaudio-cli` ayrı dosya olarak ekli.
+
+            Ayrıntılar ve kurulum adımları: README.
+          releaseDraft: true
+          prerelease: false
+
+      - name: Teşhis aracını sürüme ekle
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp "target/release/${{ matrix.cli }}" "${{ matrix.cli_asset }}"
+          gh release upload "${{ github.ref_name }}" "${{ matrix.cli_asset }}" \
+            --repo "${{ github.repository }}" --clobber

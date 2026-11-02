@@ -317,50 +317,59 @@ mikrofonla karışır ve kendini duyarsın.
   `RelAudio-Cable` olmasın. Terminalden:
   `pactl set-default-sink <gerçek sink>` (listesi: `pactl list short sinks`).
 
-#### Adım 4 — Tek düğmeye bas (ve bir kez eşleş)
+#### Adım 4 — İki makineyi eşleştir (bir kez)
 
-**Kulaklığın takılı olduğu makinede:**
+İki makinede de **RelAudio 0.2.0 ya da daha yenisi** olmalı. İkisinde de aç.
 
-1. **Kulaklık** sekmesi.
-2. **Kulaklık bu makinede**'yi seç.
-3. **Karşı cihaz** → uzak makineyi seç.
-4. **Kulaklık modunu başlat**'a bas.
-
-RelAudio bu makinenin **varsayılan** mikrofonunu ve **varsayılan** hoparlörünü
-seçiyor. Bu yüzden kulaklığı burada varsayılan yap — yoksa dizüstünün dahili
-mikrofonunu gönderir, dahili hoparlöründen dinlersin. Sistem varsayılanını
-değiştirmek istemiyorsan sağdaki panelde **Aygıtlar**'ı aç ve kulaklığın
-mikrofonunu/hoparlörünü elle seç; seçimin kaydedilir ve öne geçer.
-
-**Yalnızca ilk seferde iki makineyi eşleştiriyorsun.** Başlatmak yerine bu
-makine ekranda **6 haneli bir kod** gösteriyor:
+**Hangi makinede olursan ol:** **Kulaklık** sekmesi → **Karşı makine** altında
+diğer bilgisayara tıkla. Daha önce tanışmadıkları için bir eşleştirme kartı
+çıkıyor: solda **bu makinenin kodu**, sağda **karşının kodunu yazacağın kutu**:
 
 ```
-    WINDOWS-PC makinesinde bu kodu yaz
-              418  205
+  ┌ Bu makinenin kodu ───────┐   ┌ Ya da WINDOWS-PC ekranındaki kodu yaz ┐
+  │        418 205           │   │  [ _ _ _ _ _ _ ]   [ Eşleş ]          │
+  └──────────────────────────┘   └───────────────────────────────────────┘
 ```
 
-Karşı makineye geç, RelAudio'yu aç, **Kulaklık** sekmesinde **Karşı cihaz**
-olarak bu makineyi seç ve çıkan kutuya kodu yaz. Hepsi bu — iki makine bir
-anahtar paylaşıyor ve kod bir daha sorulmuyor. İlk makine bunu fark edip
-kendiliğinden başlıyor.
+Aynısını diğer makinede de yap — o da kendi kodunu gösteriyor. Şimdi **bir**
+ekrandaki kodu okuyup **öbür** makinedeki kutuya yaz. Hangi yönden yazdığın fark
+etmez. Bir an sonra iki makine de birbirinin adının yanında **Eşleşti**
+gösteriyor; kod bir daha sorulmuyor.
 
 > **Kod neden var.** Kod olmasa, ağındaki herhangi bir şey makinene "sesini
 > yakala ve bana gönder" diyebilirdi. Eşleştirme, bunu yalnızca senin bilerek
-> tanıştırdığın makinelerin yapabilmesi demek. Kod 3 dakika geçerli ve 5 yanlış
-> denemede yanıyor. Eşleşilmiş cihazları **Ayarlar**'da görüp kaldırabilirsin.
+> tanıştırdığın makinelerin yapabilmesi demek. Bir kod 3 dakika geçerli, 5 yanlış
+> denemede yanıyor ve makine dakikada toplam 10'dan fazla yanlış denemeyi kabul
+> etmiyor. Eşleşilmiş cihazları **Ayarlar**'da görüp kaldırabilirsin.
+>
+> Eşleştikten sonra her oturum **gelen sesi karşı makinenin adreslerine
+> kilitliyor** — ağdaki başka biri kulaklığına ya da uzak tarafta toplantı
+> uygulamasının mikrofonuna ses basamıyor.
 >
 > Dürüst sınır: eşleştirme alışverişinin kendisi şifreli değil, yani o tek anı
 > yakalayabilen biri eşleşmeyi devralabilir. Ses akışı da şifresiz. Bu koruma,
 > makinene *bağlanabilen* birine karşı; ağını *dinleyebilen* birine karşı değil.
 
+**Ardından kulaklığın takılı olduğu makinede:**
+
+1. **Kulaklık** sekmesi → **Kulaklık bu makinede**.
+2. **Karşı makine** → uzak bilgisayar (yanında **Eşleşti** yazmalı).
+3. **Kulaklık modunu başlat**'a bas.
+
+RelAudio bu makinenin **varsayılan** mikrofonunu ve **varsayılan** hoparlörünü
+seçiyor. Bu yüzden kulaklığı burada varsayılan yap — yoksa dizüstünün dahili
+mikrofonunu gönderir, dahili hoparlöründen dinlersin. Sistem varsayılanını
+değiştirmek istemiyorsan sağdaki **Kulaklık aygıtları** panelinden kulaklığın
+mikrofonunu/hoparlörünü seç; seçimin kaydedilir ve öne geçer. (Bu seçimler
+Sunucu ve Oynatıcı sekmelerinden ayrı — biri değişince öbürü etkilenmiyor.)
+
 #### Adım 5 — Bundan sonrası tek düğme
 
 Sonraki her oturum sadece şu: makineyi seç, **Kulaklık modunu başlat**'a bas.
-Karşı makine kendi yarısını kendiliğinden kuruyor ve panelde *"İki taraf da
-çalışıyor — WINDOWS-PC uzaktan başlatıldı"* yazıyor; toplantı uygulamasında
-seçeceğin mikrofonun adı da orada. **Durdur**'a basınca iki makine birden
-duruyor.
+Karşı makine kendi yarısını kendiliğinden kuruyor ve panelde *"WINDOWS-PC ile
+bağlı"* yazıyor; toplantı uygulamasında seçeceğin mikrofonun adı da orada.
+Karşı makinede *"Kulaklık modunu … başlattı"* ve kendi **Durdur** düğmesi
+çıkıyor. Hangi makinede **Durdur**'a basarsan bas, iki taraf birden duruyor.
 
 Karşı taraf başlatılamadıysa sebebini yazan bir kutu çıkıyor ve bu makine
 çalışmaya devam ediyor — istersen gidip elle başlatabilirsin, eski yol hâlâ
@@ -458,6 +467,12 @@ araya giriyor.
 
 Ses dinlemediğin bir yere gidiyor.
 
+- Kulaklık modundaysan İstatistikler'deki **Reddedilen** satırına bak. Artıyorsa
+  paketler oturumun beklemediği bir adresten geliyor — karşı makine ilan
+  etmediği bir ağ bağdaştırıcısından gönderiyor (VPN, Hyper-V, ikinci bir
+  Wi-Fi). Log, paketin geldiği adresi yazıyor. Fazla bağdaştırıcıyı kapat ya da
+  durdurup yeniden başlat ki adres listesi tazelensin.
+
 - İstatistikler panelindeki **Çıkış** satırına bak. Orası akışın *gerçekte
   açtığı* aygıt — açılır listede seçili olan değil. Yanlış yazıyorsa sağdan
   aygıtı değiştir; akış kendiliğinden yeniden kurulur.
@@ -484,7 +499,9 @@ Panel hangisi olduğunu yazıyor.
 
 | Yazan | Ne yapmalı |
 |---|---|
-| eşleşmemişsin | Burada başlata bas, çıkan 6 haneli kodu karşı makinede yaz (Adım 4). |
+| eşleşmemişsin / seninle eşleşmiş değil | Yeniden eşleş (Adım 4). Bir taraf Ayarlar'dan kaldırıldıysa, diğer taraftaki bayat eşleşme bir sonraki başlatmada kendiliğinden temizleniyor. |
+| karşı makine listede **Elle başlatılır** diyor | Eski bir RelAudio çalıştırıyor (0.2.0 öncesi). Güncelle — eski sürümler eşleşemez. |
+| adresi listeden seçmek yerine yazdın | Uzaktan başlatma, makinenin listeden seçilmesini gerektiriyor: eşleşme adrese göre değil makinenin kimliğine göre bulunuyor. |
 | uzaktan başlatmayı kabul etmiyor | Karşı makinede Ayarlar → **Uzaktan başlatmaya izin ver** kapatılmış. Geri aç. |
 | saatler birbirinden uzak | İmza zaman damgası taşıyor. İki makineden birinin saatini düzelt. |
 | zaten elle başlatılmış bir oturum var | Karşı makinede Durdur'a bas, tekrar dene. |

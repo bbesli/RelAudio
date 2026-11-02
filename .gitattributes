@@ -1,0 +1,4 @@
+# Kabuk ve Python betikleri her zaman LF: Windows'ta klonlanıp CRLF'e
+# dönüşürlerse Linux'ta "bad interpreter" ile çalışmıyorlar.
+*.sh   text eol=lf
+*.py   text eol=lf

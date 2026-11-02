@@ -321,51 +321,61 @@ cable instead, mix with the relayed microphone, and you would hear yourself.
   speakers, not `RelAudio-Cable`. From a terminal:
   `pactl set-default-sink <your real sink>` (list them with `pactl list short sinks`).
 
-#### Step 4 — Press one button (and pair once)
+#### Step 4 — Pair the two machines (once)
 
-**On the machine where the headset is plugged in:**
+Both machines need **RelAudio 0.2.0 or newer**. Open it on both.
 
-1. **Headset** tab.
-2. Choose **Headset is on this machine**.
-3. **Other device** → pick the remote machine.
-4. Press **Start headset mode**.
-
-RelAudio picks this machine's **default** microphone and **default** speakers.
-So make the headset the default here first — otherwise you send your laptop's
-built-in mic and hear its built-in speakers. If you'd rather not change the
-system default, open **Devices** in the panel on the right and pick the
-headset's mic and speakers by hand; your choice is saved and wins.
-
-**The first time only, you pair the two machines.** Instead of starting, this
-machine shows a **6-digit code**:
+**On either machine:** **Headset** tab → under **The other machine**, click the
+other computer. Because they have never met, a pairing card appears showing
+**this machine's code** and a box for **the other machine's code**:
 
 ```
-    Type this code on WINDOWS-PC
-         418  205
+  ┌ This machine's code ─────┐   ┌ Or type the code shown on WINDOWS-PC ┐
+  │        418 205           │   │  [ _ _ _ _ _ _ ]   [ Pair ]          │
+  └──────────────────────────┘   └──────────────────────────────────────┘
 ```
 
-Go to the other machine, open RelAudio, **Headset** tab, pick this machine in
-**Other device**, and type the code into the box that appears. That's it — the
-two machines share a key, and the code is never asked for again. The first
-machine notices and starts on its own.
+Do the same on the other machine — it shows its own code too. Now read the code
+on **one** screen and type it into the box on the **other**. Either direction
+works. A moment later both machines show **Paired** next to each other's name,
+and the code is never asked for again.
 
 > **Why there's a code.** Without it, anything on your network could tell your
 > machine to capture audio and stream it away. Pairing means only the machines
-> you deliberately introduced to each other can do that. The code is good for 3
-> minutes and dies after 5 wrong guesses. You can see and remove paired devices
-> in **Settings**.
+> you deliberately introduced to each other can do that. A code is good for 3
+> minutes, dies after 5 wrong guesses, and the machine refuses more than 10 wrong
+> guesses a minute in total. You can see and remove paired devices in
+> **Settings**.
+>
+> After pairing, a session also **locks the incoming audio to the other
+> machine's addresses** — nobody else on the network can push sound into your
+> headset or, on the remote side, into the meeting app's microphone.
 >
 > Honest limit: the pairing exchange itself is not encrypted, so someone who can
 > capture that one moment of traffic could take over the pairing. The audio
 > stream is not encrypted either. This protects you from anyone who can *connect*
 > to your machine, not from someone who can *sniff* your network.
 
+**On the machine where the headset is plugged in**, then:
+
+1. **Headset** tab → **Headset is on this machine**.
+2. **The other machine** → the remote computer (it should say **Paired**).
+3. Press **Start headset mode**.
+
+RelAudio picks this machine's **default** microphone and **default** speakers.
+So make the headset the default here first — otherwise you send your laptop's
+built-in mic and hear its built-in speakers. If you'd rather not change the
+system default, pick the headset's mic and speakers in **Headset devices** on
+the right; your choice is saved and wins. (These choices are separate from the
+Send and Receive tabs — changing one does not touch the other.)
+
 #### Step 5 — From now on, one button
 
 Every session after that is just: pick the machine, press **Start headset mode**.
-The other machine starts its half automatically and the panel says *"Both sides
-running — WINDOWS-PC was started remotely"*, along with the microphone name to
-pick in your meeting app. Pressing **Stop** stops both machines.
+The other machine starts its half automatically and the panel says *"Connected
+to WINDOWS-PC"*, along with the microphone name to pick in your meeting app. The
+other machine shows *"Headset mode was started by …"* with its own **Stop**
+button. Pressing **Stop** on either machine stops both.
 
 If the other machine could not be started you get a box saying exactly why, and
 this machine keeps running — so you can still go over and start it by hand, the
@@ -475,6 +485,12 @@ firewall is in the way.
 
 The audio is going somewhere you're not listening.
 
+- In headset mode, check the **Rejected** row in Statistics. If it climbs, packets
+  are arriving from an address the session did not expect — the other machine is
+  sending from a network adapter it did not announce (VPN, Hyper-V, a second
+  Wi-Fi). The log names the address it came from. Disable the extra adapter or
+  stop and start again so the address list is refreshed.
+
 - Look at the **Output** row in the Statistics panel. That is the device the
   stream *actually opened* — not what the dropdown shows. If it says the wrong
   thing, change the device on the right; the stream restarts by itself.
@@ -502,7 +518,9 @@ The panel tells you which of these it was.
 
 | What it says | What to do |
 |---|---|
-| not paired | Press start here, then type the 6-digit code on the other machine (Step 4). |
+| not paired / not paired with you | Pair again (Step 4). If one side was removed in Settings, the other side's stale pairing is cleared automatically the next time you press start. |
+| the other machine shows **Start by hand** | It runs an older RelAudio (before 0.2.0). Update it — older versions cannot pair. |
+| typed an address instead of picking from the list | Remote start needs the machine picked from the list, because the pairing is looked up by the machine's identity, not its address. |
 | does not accept remote start | On the other machine: Settings → **Allow remote start** is switched off. Turn it back on. |
 | the clocks are too far apart | The signature carries a timestamp. Fix the system clock on either machine. |
 | already has a session started by hand | Press Stop on the other machine, then try again. |

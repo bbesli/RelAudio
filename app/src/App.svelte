@@ -3,15 +3,19 @@
     listDevices, startServer, stopServer, startPlayer, stopPlayer, getStats,
     setMinimizeToTray, getLocalAddress, getPeers, getDeviceName, getMicHint,
     getConfig, setConfig, getConfigPath, getLogPath, setTrayLabels,
-    getHeadsetPlan, startHeadset, stopHeadset, pairWithPeer, cancelPairing, isPaired, unpair,
+    getHeadsetPlan, startHeadset, stopHeadset, pairWithPeer, getPairingCode,
+    cancelPairing, unpair,
     type Device, type Stats, type Peer, type MicHint, type Config,
     type HeadsetPlan, type HeadsetRole, type HeadsetStartResult,
   } from "./lib/api";
+  import { getVersion } from "@tauri-apps/api/app";
   import { LOCALES, translator, detectLocale, isRtl } from "./lib/i18n";
   import DevicePicker from "./lib/DevicePicker.svelte";
   import LevelMeter from "./lib/LevelMeter.svelte";
   import StatRow from "./lib/StatRow.svelte";
   import BuyMeCoffee from "./lib/BuyMeCoffee.svelte";
+  import Icon, { type IconName } from "./lib/Icon.svelte";
+  import PairingCard from "./lib/PairingCard.svelte";
 
   type Tab = "headset" | "server" | "player" | "settings";
 
@@ -28,6 +32,7 @@
   let micHint = $state<MicHint | null>(null);
   let error = $state<string | null>(null);
   let busy = $state(false);
+  let version = $state("");
 
   let myName = $state("");
   let localAddress = $state<string | null>(null);
@@ -38,6 +43,8 @@
   let cfg = $state<Config | null>(null);
   let lang = $state("en");
   let selectedPeer = $state("");
+  /** Kulaklık sekmesinde "adres gir" seçeneği açık mı? */
+  let manualTarget = $state(false);
 
   const t = $derived(translator(lang));
 
@@ -72,7 +79,10 @@
       language: "", minimize_to_tray: true, auto_listen: true,
       player_mode: "listen", player_port: 59101, player_device: "", player_buffer: 8,
       server_source: "monitor", server_device_monitor: "", server_device_input: "",
-      server_target: "", headset_role: "local", remote_control: true, paired: {},
+      server_target: "", headset_role: "local",
+      headset_local_play: "", headset_local_capture: "",
+      headset_remote_play: "", headset_remote_capture: "",
+      remote_control: true, paired: {},
     };
   }
 
@@ -94,6 +104,7 @@
       cfg = c;
       configPath = await getConfigPath().catch(() => "");
       logPath = await getLogPath().catch(() => "");
+      version = await getVersion().catch(() => "");
       await refresh();
       await tick();
     })();
@@ -113,12 +124,18 @@
     setTrayLabels(tr("tray.show"), tr("tray.stopAll"), tr("tray.quit")).catch(() => {});
   });
 
-  // Seçili eş ağdan kaybolursa seçimi bırak, elle adres alanı geri gelsin.
-  // Aksi hâlde açılır liste boş kalıyor ve hedef girilemez hâle geliyordu.
+  // Seçili eş ağdan kaybolursa seçimi bırak. Aksi hâlde açılır liste boş
+  // kalıyor ve hedef girilemez hâle geliyordu.
   $effect(() => {
     if (selectedPeer && !peers.some((p) => p.id === selectedPeer)) {
       selectedPeer = "";
     }
+  });
+
+  // Tek eş varsa onu kendiliğinden seç: iki makineli kurulumda kullanıcının
+  // her açılışta aynı tek seçeneğe tıklaması anlamsız.
+  $effect(() => {
+    if (!selectedPeer && !manualTarget && peers.length === 1) selectedPeer = peers[0].id;
   });
 
   $effect(() => {
@@ -165,6 +182,9 @@
     const touchesPlayer = PLAYER_RESTART_KEYS.some(changed);
     const touchesServer = SERVER_RESTART_KEYS.some(changed);
     if (!touchesPlayer && !touchesServer) return;
+    // Kulaklık oturumu kendi aygıtlarıyla çalışıyor; Oynatıcı/Sunucu
+    // ayarındaki bir değişiklik onu yeniden kurmamalı.
+    if (stats?.headset_active) return;
 
     // Port alanına yazarken her tuşta yeniden başlatmamak için bekle.
     clearTimeout(restartTimer);
@@ -191,7 +211,7 @@
   async function act(fn: () => Promise<void>) {
     busy = true;
     error = null;
-    try { await fn(); } catch (e) { error = String(e); }
+    try { await fn(); } catch (e) { error = String(e).replace(/^Error:\s*/, ""); }
     busy = false;
     await tick();
   }
@@ -213,80 +233,73 @@
       await startPlayer(cfg!.player_port, cfg!.player_device, cfg!.player_buffer);
     });
 
-  const running = $derived(stats?.server_running || stats?.player_running);
-  /** Kulaklık modu = iki yön birden çalışıyor. */
-  const headsetRunning = $derived(!!stats?.server_running && !!stats?.player_running);
+  const running = $derived(!!stats?.server_running || !!stats?.player_running);
+  /** Kulaklık modu açık mı? Rust tarafında açıkça tutuluyor; eskiden
+   *  "gönderici ve alıcı çalışıyor" diye tahmin ediliyordu ve `auto_listen`
+   *  yüzünden yanlış "Durdur" gösteriliyordu. */
+  const headsetRunning = $derived(!!stats?.headset_active);
+  /** Şu an ses gelmesi bekleniyor mu? (kulaklık oturumu ya da kullanıcı
+   *  Oynatıcı sekmesinde alıma bakıyor) */
+  const expectingAudio = $derived(headsetRunning || tab === "player");
 
   // — Kulaklık modu —
   //
   // Aygıt seçim politikası **Rust tarafında** (`audio::headset_plan`).
-  // Sebebi: uzaktan gelen "başlat" isteğinde arayüz hiç devrede olmuyor ve
-  // iki yerde ayrı ayrı yazılan bir politika kaçınılmaz olarak ayrışır.
   // Değişmez kural orada da aynı: yakalanan aygıt ile yazılan aygıt aynı
   // olamaz, yoksa kullanıcı kendini duyar.
 
   const chosenPeer = $derived(peers.find((p) => p.id === selectedPeer) ?? null);
 
-  // — Eşleştirme —
-  //
-  // Uzaktan başlatma yalnızca eşleşilmiş cihazlar için açık. Paylaşan makine
-  // 6 haneli kodu ekranda gösteriyor, kullanıcı kodu karşı makinede yazıyor,
-  // iki taraf bir anahtar paylaşıyor ve bir daha sorulmuyor.
-  let peerPaired = $state<boolean | null>(null);
-  let codeInput = $state("");
+  /** Bu eşle eşleştik mi? İstatistiklerden geliyor (her 500 ms). Kodu
+   *  *gösteren* makine, karşı taraf kodu girince bunu böyle fark ediyor;
+   *  eskiden arayüzdeki config kopyası bayat kalıyordu. */
+  const isPaired = (p: Peer | null) =>
+    !!p && !!p.device_id && (stats?.paired_ids ?? []).includes(p.device_id);
+  const peerPaired = $derived(isPaired(chosenPeer));
+  /** Eşleştirme kartı gösterilmeli mi? */
+  const needsPairing = $derived(
+    !!chosenPeer && chosenPeer.can_remote_start && !!chosenPeer.device_id && !peerPaired
+  );
+
+  // Kart görünürken bu makinenin kodu canlı olmalı (süresi dolunca yenisi),
+  // görünmezken iptal edilmeli: ekranda olmayan bir kod, kimsenin
+  // görmediği bir kapı.
+  $effect(() => {
+    const showing = tab === "headset" && needsPairing && !headsetRunning;
+    const has = !!stats?.pairing_code;
+    if (showing && !has) getPairingCode().catch(() => {});
+    else if (!showing && has) cancelPairing().catch(() => {});
+  });
+
   let pairingBusy = $state(false);
   let pairedWith = $state<string | null>(null);
 
-  $effect(() => {
-    const id = selectedPeer;
-    void cfg?.paired;
-    if (!id) { peerPaired = null; return; }
-    isPaired(id).then((v) => (peerPaired = v)).catch(() => (peerPaired = null));
-  });
-
-  /** Kodumuz ekranda dururken karşı taraf onu kullanırsa kod kayboluyor.
-   *  O an başlatmayı kendiliğinden tekrar deniyoruz: kullanıcı düğmeye
-   *  ikinci kez basmak zorunda kalmasın.
-   *
-   *  Tetikleyici kodun **kaybolması**, yokluğu değil. "Kod yok" durumunda
-   *  yeniden denemek, kod hiç üretilemediğinde (rastgelelik alınamadı)
-   *  sonsuz döngü kuruyordu. */
-  let codeWasShowing = $state(false);
-  $effect(() => {
-    const showing = !!stats?.pairing_code;
-    const consumed = codeWasShowing && !showing;
-    codeWasShowing = showing;
-    if (consumed && remoteResult?.needs_pairing && !busy) {
-      remoteResult = null;
-      toggleHeadset();
-    }
-  });
-
-  const submitCode = () =>
+  const submitCode = (code: string) =>
     act(async () => {
       if (!chosenPeer) throw new Error(t("error.needTarget"));
       pairingBusy = true;
       try {
-        pairedWith = await pairWithPeer(chosenPeer.id, codeInput);
-        codeInput = "";
+        pairedWith = await pairWithPeer(chosenPeer.id, code);
         cfg = await getConfig();
-        peerPaired = true;
       } catch (e) {
-        const code = String(e).replace(/^Error:\s*/, "");
-        throw new Error(REMOTE_CODES.has(code) ? t(`remote.${code}`) : code);
+        const c = String(e).replace(/^Error:\s*/, "");
+        throw new Error(REMOTE_CODES.has(c) ? t(`remote.${c}`) : c);
       } finally {
         pairingBusy = false;
       }
     });
 
-  const savedCaptureId = $derived(
-    headsetRole === "local" ? (cfg?.server_device_input ?? "") : (cfg?.server_device_monitor ?? "")
+  const savedPlay = $derived(
+    (headsetRole === "local" ? cfg?.headset_local_play : cfg?.headset_remote_play) ?? ""
+  );
+  const savedCapture = $derived(
+    (headsetRole === "local" ? cfg?.headset_local_capture : cfg?.headset_remote_capture) ?? ""
   );
 
   $effect(() => {
     const role = headsetRole;
-    const play = cfg?.player_device ?? "";
-    const capture = savedCaptureId;
+    const play = savedPlay;
+    const capture = savedCapture;
     // Aygıt listesi değiştiğinde (kablo kuruldu, kulaklık takıldı) planı
     // tazele; aksi hâlde kullanıcı Yenile'ye bassa da eski planı görüyor.
     void devices.length;
@@ -294,6 +307,13 @@
       .then((p) => (headsetPlan = p))
       .catch((e) => { headsetPlan = null; error = String(e); });
   });
+
+  /** Kulaklık aygıt seçimi — Oynatıcı/Sunucu ayarlarından ayrı alanlara. */
+  function persistHeadsetDevice(which: "play" | "capture", id: string) {
+    const key = `headset_${headsetRole}_${which}` as
+      "headset_local_play" | "headset_local_capture" | "headset_remote_play" | "headset_remote_capture";
+    persist({ [key]: id } as Partial<Config>);
+  }
 
   /** Plan kurulamadıysa çeviri anahtarına eşlenmiş sebep. */
   const headsetProblem = $derived(
@@ -310,7 +330,7 @@
     "device_open", "version", "needs_pairing",
     "pair_no_code", "pair_expired", "pair_wrong", "pair_too_many",
     "pair_no_random", "pair_bad_reply", "auth_stale", "auth_replay", "auth_bad",
-    "peer_gone", "no_control",
+    "peer_gone", "no_control", "manual_target",
   ]);
   const remoteError = $derived(
     !remoteResult?.remote_error ? null
@@ -326,11 +346,36 @@
     (headsetPlan?.capture?.name ?? "—").replace(/^Monitor of /i, "")
   );
 
+  // Bu makine uzaktan başlatıldığında rol Rust tarafında seçildi ve diske
+  // yazıldı; arayüzdeki rol açılıştan kalma ve yanlış olabilir. Eşitlenmezse
+  // plan yanlış rol için çözülüyor ve "şu mikrofonu seç" talimatı "?" diyordu.
+  let lastOrigin = "";
+  $effect(() => {
+    const origin = stats?.started_by?.address ?? "";
+    if (origin && origin !== lastOrigin) {
+      getConfig().then((c) => {
+        cfg = c;
+        headsetRole = c.headset_role === "remote" ? "remote" : "local";
+      }).catch(() => {});
+    }
+    lastOrigin = origin;
+  });
+
   /** Toplantı uygulamasında seçilecek mikrofon. Uzak rolü karşı taraf
-   *  üstlendiyse adı o bildiriyor; biz üstlendiysek kendi planımızda. */
+   *  üstlendiyse adı o bildiriyor (Rust saklıyor); biz üstlendiysek kendi
+   *  planımızda. */
   const pairedMic = $derived(
-    (headsetRole === "local" ? remoteResult?.remote_paired_mic : headsetPlan?.paired_mic) ?? "?"
+    (headsetRole === "local" && !stats?.started_by
+      ? stats?.linked_paired_mic
+      : headsetPlan?.paired_mic) ?? "?"
   );
+
+  /** Oturumun karşı ucunun adı — kim başlattıysa. Durum Rust'tan geliyor:
+   *  arayüzün kendi belleğine güvenmek, pencere yeniden yüklenince çalışan
+   *  bir oturumu "yarım başladı" gösteriyordu. */
+  const sessionPeer = $derived(stats?.started_by?.name ?? stats?.linked_peer ?? "");
+  /** Oturum gerçekten iki taraflı mı? */
+  const sessionComplete = $derived(!!stats?.started_by || !!stats?.linked_peer);
 
   const toggleHeadset = () =>
     act(async () => {
@@ -340,7 +385,8 @@
         return;
       }
       if (headsetProblem) throw new Error(headsetProblem);
-      const peer = chosenPeer;
+      if (needsPairing) throw new Error(t("headset.pairFirst"));
+      const peer = manualTarget ? null : chosenPeer;
       if (!peer && !(cfg!.server_target ?? "").trim()) throw new Error(t("error.needTarget"));
       persist({ headset_role: headsetRole });
       remoteResult = await startHeadset(
@@ -354,251 +400,361 @@
       cfg = await getConfig().catch(() => cfg!);
     });
 
+  function osIcon(os: string): IconName {
+    return os === "windows" ? "windows" : os === "linux" ? "linux" : "monitor";
+  }
+
+  const NAV: { id: Tab; icon: IconName; key: string }[] = [
+    { id: "headset", icon: "headset", key: "nav.headset" },
+    { id: "server", icon: "send", key: "nav.server" },
+    { id: "player", icon: "receive", key: "nav.player" },
+    { id: "settings", icon: "settings", key: "nav.settings" },
+  ];
 </script>
 
 {#if cfg}
 <div class="app">
-  <nav>
-    <div class="brand">RelAudio</div>
-    <button class="tab" class:active={tab === "headset"} onclick={() => (tab = "headset")}>
-      {t("nav.headset")}</button>
-    <button class="tab" class:active={tab === "server"} onclick={() => (tab = "server")}>
-      {t("nav.server")}</button>
-    <button class="tab" class:active={tab === "player"} onclick={() => (tab = "player")}>
-      {t("nav.player")}</button>
-    <button class="tab" class:active={tab === "settings"} onclick={() => (tab = "settings")}>
-      {t("nav.settings")}</button>
+  <!-- ——— Kenar çubuğu ——— -->
+  <nav class="sidebar" aria-label="RelAudio">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"><Icon name="headset" size={18} /></span>
+      <span>RelAudio</span>
+    </div>
+
+    <div class="navlist">
+      {#each NAV as item (item.id)}
+        <button class="nav" class:active={tab === item.id} onclick={() => (tab = item.id)}
+                aria-current={tab === item.id ? "page" : undefined}>
+          <Icon name={item.icon} size={17} />
+          <span>{t(item.key)}</span>
+          {#if item.id === "headset" && headsetRunning}<span class="pip" aria-hidden="true"></span>{/if}
+        </button>
+      {/each}
+    </div>
+
     <div class="spacer"></div>
-    <div class="live" class:on={running}>
-      <span class="dot"></span>{running ? t("status.live") : t("status.idle")}
+
+    <div class="me">
+      <span class="me-label">{t("player.thisDevice")}</span>
+      <strong title={myName}>{myName || "…"}</strong>
+      <span class="me-addr">{localAddress ?? t("player.noAddress")}</span>
+    </div>
+
+    <div class="status" class:on={running}>
+      <span class="dot" aria-hidden="true"></span>
+      <span>{running ? t("status.live") : t("status.idle")}</span>
+      {#if version}<span class="ver">v{version}</span>{/if}
     </div>
   </nav>
 
+  <!-- ——— İçerik ——— -->
   <main>
-    {#if stats?.started_by}
-      <div class="remote-banner" role="status">
-        <div>
-          <strong>{t("headset.startedBy", { device: stats.started_by.name })}</strong>
-          <p class="fb">{stats.started_by.address}</p>
+    <div class="content">
+      {#if stats?.started_by && tab !== "headset"}
+        <div class="banner info" role="status">
+          <Icon name="headset" />
+          <div class="grow">
+            <strong>{t("headset.startedBy", { device: stats.started_by.name })}</strong>
+            <span>{stats.started_by.address}</span>
+          </div>
+          <button class="danger" onclick={() => act(stopHeadset)}>
+            <Icon name="stop" size={15} />{t("headset.stop")}
+          </button>
         </div>
-        <button class="danger" onclick={() => act(stopHeadset)}>{t("headset.stop")}</button>
-      </div>
-    {/if}
+      {/if}
 
-    {#if stats?.feedback_loop}
-      <div class="err" role="alert">
-        <div>
-          <strong>{t("player.feedback")}</strong>
-          <p class="fb">{t("player.feedbackBody")}</p>
+      {#if stats?.feedback_loop}
+        <div class="banner bad" role="alert">
+          <Icon name="alert" />
+          <div class="grow">
+            <strong>{t("player.feedback")}</strong>
+            <span>{t("player.feedbackBody")}</span>
+          </div>
         </div>
-      </div>
-    {/if}
+      {/if}
 
-    {#if error}
-      <div class="err" role="alert">
-        <strong>{t("error.title")}</strong><span>{error}</span>
-        <button class="x" onclick={() => (error = null)} aria-label={t("error.close")}>✕</button>
-      </div>
-    {/if}
-
-    {#if tab === "headset"}
-      <section class="card">
-        <h2>{t("headset.title")}</h2>
-        <p class="sub">{t("headset.subtitle")}</p>
-
-        <div class="modes">
-          <label class="mode" class:sel={headsetRole === "local"}>
-            <input type="radio" checked={headsetRole === "local"}
-                   onchange={() => (headsetRole = "local")} disabled={headsetRunning} />
-            <div><strong>{t("headset.local")}</strong><span>{t("headset.localDesc")}</span></div>
-          </label>
-          <label class="mode" class:sel={headsetRole === "remote"}>
-            <input type="radio" checked={headsetRole === "remote"}
-                   onchange={() => (headsetRole = "remote")} disabled={headsetRunning} />
-            <div><strong>{t("headset.remote")}</strong><span>{t("headset.remoteDesc")}</span></div>
-          </label>
+      {#if error}
+        <div class="banner bad" role="alert">
+          <Icon name="alert" />
+          <div class="grow">
+            <strong>{t("error.title")}</strong>
+            <span class="selectable">{error}</span>
+          </div>
+          <button class="ghost icon" onclick={() => (error = null)} aria-label={t("error.close")}>
+            <Icon name="x" size={16} />
+          </button>
         </div>
+      {/if}
 
-        <label class="field">
-          <span class="lbl">{t("headset.target")}</span>
-          <select bind:value={selectedPeer} disabled={headsetRunning}>
-            {#each peers as p (p.id)}
-              <option value={p.id}>{p.name} — {p.address}</option>
-            {/each}
-            <option value="">{t("server.manual")}</option>
-          </select>
-          {#if peers.length === 0}<span class="hint">{t("server.noPeers")}</span>{/if}
-        </label>
-
-        {#if !selectedPeer}
-          <label class="field">
-            <span class="lbl">{t("server.address")}</span>
-            <input type="text" value={cfg.server_target} placeholder="192.168.1.10"
-                   disabled={headsetRunning}
-                   oninput={(e) => persist({ server_target: e.currentTarget.value })} />
-          </label>
-        {/if}
-
-        <!-- Eş uzaktan başlatmayı desteklemiyorsa bunu düğmeye basmadan
-             söylemek gerekiyor: aksi hâlde kullanıcı yarım kurulmuş bir
-             oturumla baş başa kalıyor ve sebebini bilmiyor. -->
-        {#if chosenPeer && !chosenPeer.can_remote_start && !headsetRunning}
-          <div class="mic-info">
-            <strong>{t("headset.peerNoRemote", { device: chosenPeer.name })}</strong>
-          </div>
-        {/if}
-
-        <!-- Bu makine kodu gösteriyor: karşı taraf onu girecek. -->
-        {#if stats?.pairing_code}
-          <div class="pair-code">
-            <strong>{t("pair.showTitle", { device: chosenPeer?.name ?? "—" })}</strong>
-            <div class="code">{stats.pairing_code.slice(0, 3)} {stats.pairing_code.slice(3)}</div>
-            <p class="fb">{t("pair.showBody", { seconds: String(stats.pairing_seconds) })}</p>
-            <button class="link" onclick={() => act(async () => { await cancelPairing(); remoteResult = null; })}>
-              {t("pair.cancel")}
-            </button>
-          </div>
-
-        <!-- Karşı taraf eşleşmemiş: kodu buraya gir. -->
-        {:else if chosenPeer && chosenPeer.can_remote_start && peerPaired === false && !headsetRunning}
-          <div class="pair-code">
-            <strong>{t("pair.enterTitle", { device: chosenPeer.name })}</strong>
-            <p class="fb">{t("pair.enterBody", { device: chosenPeer.name })}</p>
-            <div class="pair-row">
-              <input class="code-input" type="text" inputmode="numeric" maxlength="6"
-                     placeholder="000000" bind:value={codeInput}
-                     onkeydown={(e) => { if (e.key === "Enter" && codeInput.length === 6) submitCode(); }} />
-              <button class="primary" disabled={pairingBusy || codeInput.trim().length !== 6}
-                      onclick={submitCode}>{t("pair.submit")}</button>
-            </div>
-          </div>
-        {:else if pairedWith && peerPaired}
-          <div class="mic-ok"><strong>{t("pair.done", { device: pairedWith })}</strong></div>
-        {/if}
-
-        {#if headsetProblem}
-          <div class="mic-info"><strong>{headsetProblem}</strong></div>
-        {:else}
-          <div class="plan">
-            <div class="row"><span>{t("stats.sourceDevice")}</span><strong>{headsetPlan?.capture?.name ?? "—"}</strong></div>
-            <div class="row"><span>{t("stats.outputDevice")}</span><strong>{headsetPlan?.play?.name ?? "—"}</strong></div>
-          </div>
-        {/if}
+      {#if tab === "headset"}
+        <header class="page">
+          <h1>{t("headset.title")}</h1>
+          <p>{t("headset.subtitle")}</p>
+        </header>
 
         {#if headsetRunning}
-          {#if stats?.started_by}
-            <!-- Bu makine uzaktan başlatıldı: istek göndermedik, dolayısıyla
-                 "karşı taraf başlatılamadı" demek yanlış olurdu. -->
-            <div class="mic-ok">
-              <strong>{t("headset.startedBy", { device: stats.started_by.name })}</strong>
-              <ol class="steps">
-                {#if headsetRole === "remote"}
-                  <li><strong class="pick">{t("headset.setupMic", { device: headsetPlan?.paired_mic ?? "?" })}</strong></li>
+          <!-- ——— Oturum sürüyor ——— -->
+          <section class="session" class:partial={!sessionComplete}>
+            <div class="session-head">
+              <span class="live-dot" aria-hidden="true"></span>
+              <div class="grow">
+                <strong>
+                  {#if stats?.started_by}
+                    {t("headset.startedBy", { device: stats.started_by.name })}
+                  {:else if stats?.linked_peer}
+                    {t("headset.live", { device: sessionPeer })}
+                  {:else}
+                    {t("headset.halfStarted")}
+                  {/if}
+                </strong>
+                {#if !sessionComplete}
+                  {#if remoteError}<span>{remoteError}</span>{/if}
+                  <span>{t("headset.startTheirSide")}</span>
                 {/if}
-              </ol>
-              <p class="warn-line">{t("headset.parsec")}</p>
+              </div>
             </div>
-          {:else if remoteResult?.remote_started}
-            <div class="mic-ok">
-              <strong>{t("headset.bothStarted", { device: remoteResult.remote_name })}</strong>
-              <p class="fb">{headsetRole === "local" ? t("headset.setupTitle") : t("headset.setupTitleHere")}</p>
-              <ol class="steps">
-                <li><strong class="pick">{t("headset.setupMic", { device: pairedMic })}</strong></li>
-                <!-- Talimat, toplantı uygulamasının çalıştığı makine için.
-                     Kulaklık bizdeyse o makine karşı taraf; kulaklık karşıdaysa
-                     toplantı bu makinede ve hoparlör bizim gerçek
-                     hoparlörümüz — kablo değil, o zaten yayınlanıyor. -->
-                <li>{t("headset.setupOut", {
-                  device: headsetRole === "local"
-                    ? t("headset.theirSpeakers")
-                    : speakerName })}</li>
-              </ol>
-              <p class="warn-line">{t("headset.parsec")}</p>
-            </div>
-          {:else}
-            <div class="mic-info">
-              <strong>{t("headset.halfStarted")}</strong>
-              {#if remoteError}
-                <p class="fb">{remoteError}</p>
+
+            <div class="flows">
+              <div class="flow">
+                <span class="flow-icon up"><Icon name="send" size={16} /></span>
+                <div class="grow">
+                  <span class="flow-label">{t("stats.sending")}</span>
+                  <strong title={stats?.server_device_name}>{stats?.server_device_name || "—"}</strong>
+                </div>
+                <span class="flow-num">{stats?.server_packets.toLocaleString() ?? 0}</span>
+              </div>
+              <div class="flow">
+                <span class="flow-icon down"><Icon name="receive" size={16} /></span>
+                <div class="grow">
+                  <span class="flow-label">{t("stats.receiving")}</span>
+                  <strong title={stats?.player_device_name}>{stats?.player_device_name || "—"}</strong>
+                </div>
+                <span class="flow-num">{stats?.player_packets.toLocaleString() ?? 0}</span>
+              </div>
+              {#if stats?.player_running}
+                <LevelMeter peak={stats.player_peak} label={t("player.level")}
+                            waitingText={t("player.levelWaiting")} />
               {/if}
-              <p class="fb">{t("headset.startTheirSide")}</p>
+            </div>
+
+            {#if sessionComplete}
+              <div class="howto">
+                <strong>{headsetRole === "local" ? t("headset.setupTitle") : t("headset.setupTitleHere")}</strong>
+                <ol>
+                  <li>{t("headset.setupMic", { device: pairedMic })}</li>
+                  <li>{t("headset.setupOut", {
+                    device: headsetRole === "local" ? t("headset.theirSpeakers") : speakerName })}</li>
+                </ol>
+                <p class="note-warn"><Icon name="alert" size={14} />{t("headset.parsec")}</p>
+              </div>
+            {/if}
+
+            <button class="danger big" onclick={toggleHeadset} disabled={busy}>
+              <Icon name="stop" size={16} />{t("headset.stop")}
+            </button>
+          </section>
+
+        {:else}
+          <!-- ——— 1. Kulaklık nerede? ——— -->
+          <section class="step">
+            <h2><span class="num">1</span>{t("headset.step1")}</h2>
+            <div class="choice-grid" role="radiogroup">
+              <button class="choice" class:sel={headsetRole === "local"} role="radio"
+                      aria-checked={headsetRole === "local"} onclick={() => (headsetRole = "local")}>
+                <span class="choice-icon"><Icon name="headset" size={22} /></span>
+                <strong>{t("headset.local")}</strong>
+                <span class="choice-desc">{t("headset.localDesc")}</span>
+              </button>
+              <button class="choice" class:sel={headsetRole === "remote"} role="radio"
+                      aria-checked={headsetRole === "remote"} onclick={() => (headsetRole = "remote")}>
+                <span class="choice-icon"><Icon name="monitor" size={22} /></span>
+                <strong>{t("headset.remote")}</strong>
+                <span class="choice-desc">{t("headset.remoteDesc")}</span>
+              </button>
+            </div>
+          </section>
+
+          <!-- ——— 2. Karşı makine ——— -->
+          <section class="step">
+            <h2><span class="num">2</span>{t("headset.step2")}</h2>
+
+            {#if peers.length === 0 && !manualTarget}
+              <div class="empty">
+                <span class="spinner" aria-hidden="true"></span>
+                <span>{t("server.noPeers")}</span>
+              </div>
+            {/if}
+
+            <div class="peer-list">
+              {#each peers as p (p.id)}
+                <button class="peer" class:sel={!manualTarget && selectedPeer === p.id}
+                        onclick={() => { manualTarget = false; selectedPeer = p.id; }}>
+                  <span class="peer-os"><Icon name={osIcon(p.os)} size={18} /></span>
+                  <span class="grow">
+                    <strong>{p.name}</strong>
+                    <span class="peer-addr">{p.address}</span>
+                  </span>
+                  {#if !p.can_remote_start || !p.device_id}
+                    <span class="tag">{t("peer.manualOnly")}</span>
+                  {:else if isPaired(p)}
+                    <span class="tag ok"><Icon name="check" size={13} />{t("pair.badge")}</span>
+                  {:else}
+                    <span class="tag">{t("pair.badgeNo")}</span>
+                  {/if}
+                </button>
+              {/each}
+              <button class="peer manual" class:sel={manualTarget}
+                      onclick={() => { manualTarget = true; selectedPeer = ""; }}>
+                <span class="peer-os"><Icon name="wifi" size={18} /></span>
+                <span class="grow"><strong>{t("server.manual")}</strong></span>
+              </button>
+            </div>
+
+            {#if manualTarget}
+              <label class="field">
+                <span class="lbl">{t("server.address")}</span>
+                <input type="text" value={cfg.server_target} placeholder="192.168.1.10"
+                       oninput={(e) => persist({ server_target: e.currentTarget.value })} />
+                <span class="hint">{t("remote.manual_target")}</span>
+              </label>
+            {/if}
+          </section>
+
+          <!-- ——— Eşleştirme (bir kez) ——— -->
+          {#if needsPairing && chosenPeer}
+            <PairingCard peerName={chosenPeer.name} code={stats?.pairing_code ?? null}
+                         seconds={stats?.pairing_seconds ?? 0} busy={pairingBusy}
+                         onsubmit={submitCode} {t} />
+          {:else if chosenPeer && !manualTarget && !chosenPeer.can_remote_start}
+            <div class="banner warn">
+              <Icon name="alert" />
+              <div class="grow"><span>{t("headset.peerNoRemote", { device: chosenPeer.name })}</span></div>
+            </div>
+          {:else if pairedWith && peerPaired}
+            <div class="banner ok">
+              <Icon name="shield" />
+              <div class="grow"><strong>{t("pair.done", { device: pairedWith })}</strong></div>
             </div>
           {/if}
+
+          <!-- ——— Plan ve başlat ——— -->
+          {#if headsetProblem}
+            <div class="banner warn">
+              <Icon name="alert" />
+              <div class="grow"><strong>{headsetProblem}</strong></div>
+            </div>
+          {:else}
+            <div class="plan">
+              <div class="plan-end">
+                <span class="plan-icon"><Icon name={headsetRole === "local" ? "mic" : "speaker"} size={16} /></span>
+                <div class="grow">
+                  <span class="plan-label">{t("stats.sourceDevice")}</span>
+                  <strong title={headsetPlan?.capture?.name}>{headsetPlan?.capture?.name ?? "—"}</strong>
+                </div>
+              </div>
+              <span class="plan-arrow"><Icon name="arrow-right" size={16} /></span>
+              <div class="plan-end">
+                <span class="plan-icon"><Icon name={headsetRole === "local" ? "headset" : "mic"} size={16} /></span>
+                <div class="grow">
+                  <span class="plan-label">{t("stats.outputDevice")}</span>
+                  <strong title={headsetPlan?.play?.name}>{headsetPlan?.play?.name ?? "—"}</strong>
+                </div>
+              </div>
+            </div>
+          {/if}
+
+          <button class="primary big" onclick={toggleHeadset}
+                  disabled={busy || !!headsetProblem || needsPairing || (!chosenPeer && !manualTarget)}>
+            <Icon name="play" size={16} />
+            {needsPairing ? t("headset.pairFirst") : t("headset.start")}
+          </button>
+          <p class="foot">{t("headset.oneButton")}</p>
         {/if}
 
-        <button class:danger={headsetRunning} class:primary={!headsetRunning}
-                onclick={toggleHeadset} disabled={busy || !!headsetProblem}>
-          {headsetRunning ? t("headset.stop") : t("headset.start")}
-        </button>
-        {#if !headsetRunning}
-          <p class="hint">{t("headset.oneButton")}</p>
-        {/if}
-      </section>
+      {:else if tab === "server"}
+        <header class="page">
+          <h1>{t("server.title")}</h1>
+          <p>{t("server.subtitle")}</p>
+        </header>
 
-    {:else if tab === "server"}
-      <section class="card">
-        <h2>{t("server.title")}</h2>
-        <p class="sub">{t("server.subtitle")}</p>
+        <section class="step">
+          <div class="choice-grid">
+            <button class="choice" class:sel={cfg.server_source === "monitor"}
+                    onclick={() => persist({ server_source: "monitor" })}>
+              <span class="choice-icon"><Icon name="speaker" size={22} /></span>
+              <strong>{t("server.systemAudio")}</strong>
+              <span class="choice-desc">{t("server.systemAudioDesc")}</span>
+            </button>
+            <button class="choice" class:sel={cfg.server_source === "input"}
+                    onclick={() => persist({ server_source: "input" })}>
+              <span class="choice-icon"><Icon name="mic" size={22} /></span>
+              <strong>{t("server.mic")}</strong>
+              <span class="choice-desc">{t("server.micDesc")}</span>
+            </button>
+          </div>
+        </section>
 
-        <div class="modes">
-          <label class="mode" class:sel={cfg.server_source === "monitor"}>
-            <input type="radio" checked={cfg.server_source === "monitor"}
-                   onchange={() => persist({ server_source: "monitor" })} />
-            <div><strong>{t("server.systemAudio")}</strong>
-                 <span>{t("server.systemAudioDesc")}</span></div>
-          </label>
-          <label class="mode" class:sel={cfg.server_source === "input"}>
-            <input type="radio" checked={cfg.server_source === "input"}
-                   onchange={() => persist({ server_source: "input" })} />
-            <div><strong>{t("server.mic")}</strong><span>{t("server.micDesc")}</span></div>
-          </label>
-        </div>
-
-        <label class="field">
-          <span class="lbl">{t("server.target")}</span>
-          <select bind:value={selectedPeer} disabled={stats?.server_running}>
-            {#each peers as p (p.id)}
-              <option value={p.id}>
-                {p.name} — {p.address}{p.listening ? "" : `  (${t("server.notListening")})`}
-              </option>
-            {/each}
-            <option value="">{t("server.manual")}</option>
-          </select>
-          {#if peers.length === 0}<span class="hint">{t("server.noPeers")}</span>{/if}
-        </label>
-
-        {#if !selectedPeer}
+        <section class="step">
           <label class="field">
-            <span class="lbl">{t("server.address")}</span>
-            <input type="text" value={cfg.server_target} placeholder="192.168.1.10"
-                   disabled={stats?.server_running}
-                   oninput={(e) => persist({ server_target: e.currentTarget.value })} />
-            <span class="hint">{t("server.portHint")}</span>
+            <span class="lbl">{t("server.target")}</span>
+            <select bind:value={selectedPeer} disabled={stats?.server_running}>
+              {#each peers as p (p.id)}
+                <option value={p.id}>
+                  {p.name} — {p.address}{p.listening ? "" : `  (${t("server.notListening")})`}
+                </option>
+              {/each}
+              <option value="">{t("server.manual")}</option>
+            </select>
+            {#if peers.length === 0}<span class="hint">{t("server.noPeers")}</span>{/if}
           </label>
-        {/if}
 
-        <button class:danger={stats?.server_running} class:primary={!stats?.server_running}
+          {#if !selectedPeer}
+            <label class="field">
+              <span class="lbl">{t("server.address")}</span>
+              <input type="text" value={cfg.server_target} placeholder="192.168.1.10"
+                     disabled={stats?.server_running}
+                     oninput={(e) => persist({ server_target: e.currentTarget.value })} />
+              <span class="hint">{t("server.portHint")}</span>
+            </label>
+          {/if}
+        </section>
+
+        <button class="big" class:danger={stats?.server_running} class:primary={!stats?.server_running}
                 onclick={toggleServer} disabled={busy}>
+          <Icon name={stats?.server_running ? "stop" : "play"} size={16} />
           {stats?.server_running ? t("server.stop") : t("server.start")}
         </button>
-      </section>
 
-    {:else if tab === "player"}
-      <section class="card">
-        <h2>{t("player.title")}</h2>
-        <p class="sub">{t("player.subtitle")}</p>
+      {:else if tab === "player"}
+        <header class="page">
+          <h1>{t("player.title")}</h1>
+          <p>{t("player.subtitle")}</p>
+        </header>
 
-        <div class="modes">
-          <label class="mode" class:sel={cfg.player_mode === "listen"}>
-            <input type="radio" checked={cfg.player_mode === "listen"}
-                   onchange={() => persist({ player_mode: "listen" })} />
-            <div><strong>{t("player.listen")}</strong><span>{t("player.listenDesc")}</span></div>
-          </label>
-          <label class="mode" class:sel={cfg.player_mode === "mic"}>
-            <input type="radio" checked={cfg.player_mode === "mic"}
-                   onchange={() => persist({ player_mode: "mic" })} />
-            <div><strong>{t("player.micMode")}</strong><span>{t("player.micModeDesc")}</span></div>
-          </label>
+        <section class="step">
+          <div class="choice-grid">
+            <button class="choice" class:sel={cfg.player_mode === "listen"}
+                    onclick={() => persist({ player_mode: "listen" })}>
+              <span class="choice-icon"><Icon name="speaker" size={22} /></span>
+              <strong>{t("player.listen")}</strong>
+              <span class="choice-desc">{t("player.listenDesc")}</span>
+            </button>
+            <button class="choice" class:sel={cfg.player_mode === "mic"}
+                    onclick={() => persist({ player_mode: "mic" })}>
+              <span class="choice-icon"><Icon name="mic" size={22} /></span>
+              <strong>{t("player.micMode")}</strong>
+              <span class="choice-desc">{t("player.micModeDesc")}</span>
+            </button>
+          </div>
+        </section>
+
+        <div class="addr">
+          <span class="lbl">{t("player.thisDevice")}</span>
+          <strong class="selectable">{myName || "…"}</strong>
+          <span class="hint">
+            {localAddress ?? t("player.noAddress")}{localAddress ? `:${cfg.player_port}` : ""}
+            — {t("player.addressHint")}
+          </span>
         </div>
 
         <div class="two">
@@ -626,106 +782,114 @@
                       waitingText={t("player.levelWaiting")} />
         {/if}
 
-        <div class="addr">
-          <span class="lbl">{t("player.thisDevice")}</span>
-          <strong>{myName || "…"}</strong>
-          <span class="hint">
-            {localAddress ?? t("player.noAddress")}{localAddress ? `:${cfg.player_port}` : ""}
-            — {t("player.addressHint")}
-          </span>
-        </div>
-
         {#if cfg.player_mode === "mic" && micHint?.paired_input}
-          <div class="mic-ok">
+          <div class="howto ok">
             <strong>{t("player.micReady")}</strong>
-            <ol class="steps">
+            <ol>
               <li class="done">{t("player.micStep1", {
                 cable: devices.find((d) => d.id === cfg!.player_device)?.name ?? "—" })}</li>
-              <li><strong class="pick">{t("player.micStep2", { device: micHint.paired_input })}</strong></li>
+              <li><strong>{t("player.micStep2", { device: micHint.paired_input })}</strong></li>
             </ol>
-            <p class="aside-note">{t("player.micNotHere")}</p>
+            <p>{t("player.micNotHere")}</p>
             {#if devices.find((d) => d.id === cfg!.player_device)?.is_default}
-              <p class="warn-line">{t("player.cableIsDefault")}</p>
+              <p class="note-warn"><Icon name="alert" size={14} />{t("player.cableIsDefault")}</p>
             {:else}
-              <p class="warn-line">{t("player.dontChangeDefault")}</p>
+              <p class="note-warn"><Icon name="alert" size={14} />{t("player.dontChangeDefault")}</p>
             {/if}
-            <p class="aside-note">{t("player.listenTabHint")}</p>
+            <p>{t("player.listenTabHint")}</p>
           </div>
         {:else if cfg.player_mode === "mic" && micHint && !micHint.any_virtual}
-          <div class="mic-info">
-            <strong>{t("player.noCable")}</strong>
-            <p>{t("player.noCableBody")}</p>
+          <div class="banner warn">
+            <Icon name="alert" />
+            <div class="grow">
+              <strong>{t("player.noCable")}</strong>
+              <span>{t("player.noCableBody")}</span>
+            </div>
           </div>
         {/if}
 
-        <div class="peers">
-          <span class="lbl">{t("player.peers")}</span>
+        <section class="step">
+          <h2>{t("player.peers")}</h2>
           {#if peers.length}
-            <ul>
+            <div class="peer-list">
               {#each peers as p (p.id)}
-                <li><span class="pdot" class:on={p.listening}></span>
-                    <strong>{p.name}</strong><span class="paddr">{p.address}</span>
-                    <span class="pos">{p.os}</span></li>
+                <div class="peer static">
+                  <span class="peer-os"><Icon name={osIcon(p.os)} size={18} /></span>
+                  <span class="grow">
+                    <strong>{p.name}</strong>
+                    <span class="peer-addr">{p.address}</span>
+                  </span>
+                  <span class="tag" class:ok={p.listening}>{p.listening ? t("status.live") : t("status.idle")}</span>
+                </div>
               {/each}
-            </ul>
+            </div>
           {:else}
-            <p class="idle">{t("player.noPeersYet")}</p>
+            <div class="empty"><span class="spinner" aria-hidden="true"></span><span>{t("player.noPeersYet")}</span></div>
           {/if}
-        </div>
+        </section>
 
-        <button class:danger={stats?.player_running} class:primary={!stats?.player_running}
+        <button class="big" class:danger={stats?.player_running} class:primary={!stats?.player_running}
                 onclick={togglePlayer} disabled={busy}>
+          <Icon name={stats?.player_running ? "stop" : "play"} size={16} />
           {stats?.player_running ? t("player.stop") : t("player.start")}
         </button>
-      </section>
 
-    {:else}
-      <section class="card">
-        <h2>{t("settings.title")}</h2>
+      {:else}
+        <header class="page">
+          <h1>{t("settings.title")}</h1>
+        </header>
 
-        <label class="field">
-          <span class="lbl">{t("settings.language")}</span>
-          <select value={lang} onchange={(e) => {
-            lang = e.currentTarget.value; persist({ language: lang });
-          }}>
-            {#each LOCALES as l (l.code)}<option value={l.code}>{l.label}</option>{/each}
-          </select>
-          <span class="hint">{t("settings.languageDesc")}</span>
-        </label>
+        <section class="group">
+          <label class="field">
+            <span class="lbl">{t("settings.language")}</span>
+            <select value={lang} onchange={(e) => {
+              lang = e.currentTarget.value; persist({ language: lang });
+            }}>
+              {#each LOCALES as l (l.code)}<option value={l.code}>{l.label}</option>{/each}
+            </select>
+            <span class="hint">{t("settings.languageDesc")}</span>
+          </label>
+        </section>
 
-        <label class="check">
-          <input type="checkbox" checked={cfg.minimize_to_tray}
-                 onchange={(e) => {
-                   const on = e.currentTarget.checked;
-                   persist({ minimize_to_tray: on });
-                   setMinimizeToTray(on).catch((err) => (error = String(err)));
-                 }} />
-          <div><strong>{t("settings.tray")}</strong><span>{t("settings.trayDesc")}</span></div>
-        </label>
+        <section class="group">
+          <label class="toggle">
+            <input type="checkbox" checked={cfg.minimize_to_tray}
+                   onchange={(e) => {
+                     const on = e.currentTarget.checked;
+                     persist({ minimize_to_tray: on });
+                     setMinimizeToTray(on).catch((err) => (error = String(err)));
+                   }} />
+            <span class="switch" aria-hidden="true"></span>
+            <div><strong>{t("settings.tray")}</strong><span>{t("settings.trayDesc")}</span></div>
+          </label>
 
-        <label class="check">
-          <input type="checkbox" checked={cfg.auto_listen}
-                 onchange={(e) => persist({ auto_listen: e.currentTarget.checked })} />
-          <div><strong>{t("settings.autoListen")}</strong><span>{t("settings.autoListenDesc")}</span></div>
-        </label>
+          <label class="toggle">
+            <input type="checkbox" checked={cfg.auto_listen}
+                   onchange={(e) => persist({ auto_listen: e.currentTarget.checked })} />
+            <span class="switch" aria-hidden="true"></span>
+            <div><strong>{t("settings.autoListen")}</strong><span>{t("settings.autoListenDesc")}</span></div>
+          </label>
 
-        <label class="check">
-          <input type="checkbox" checked={cfg.remote_control}
-                 onchange={(e) => persist({ remote_control: e.currentTarget.checked })} />
-          <div><strong>{t("settings.remoteControl")}</strong>
-               <span>{t("settings.remoteControlDesc")}</span></div>
-        </label>
+          <label class="toggle">
+            <input type="checkbox" checked={cfg.remote_control}
+                   onchange={(e) => persist({ remote_control: e.currentTarget.checked })} />
+            <span class="switch" aria-hidden="true"></span>
+            <div><strong>{t("settings.remoteControl")}</strong>
+                 <span>{t("settings.remoteControlDesc")}</span></div>
+          </label>
+        </section>
 
-        <div class="note">
-          <strong>{t("settings.paired")}</strong>
+        <section class="group">
+          <h2><Icon name="shield" size={16} />{t("settings.paired")}</h2>
           {#if Object.keys(cfg.paired ?? {}).length === 0}
-            <p class="fb">{t("settings.pairedNone")}</p>
+            <p class="muted">{t("settings.pairedNone")}</p>
           {:else}
             <ul class="paired">
               {#each Object.entries(cfg.paired) as [id, p] (id)}
                 <li>
-                  <span>{p.name || id}</span>
-                  <button class="link" onclick={() => act(async () => {
+                  <Icon name="check" size={15} />
+                  <span class="grow">{p.name || id}</span>
+                  <button class="ghost" onclick={() => act(async () => {
                     await unpair(id);
                     cfg = await getConfig();
                   })}>{t("settings.unpair")}</button>
@@ -733,64 +897,58 @@
               {/each}
             </ul>
           {/if}
-        </div>
+        </section>
 
-        <div class="note">
-          <strong>{t("settings.limits")}</strong>
-          <ul><li>{t("settings.limit1")}</li><li>{t("settings.limit2")}</li>
+        <section class="group muted-group">
+          <h2>{t("settings.limits")}</h2>
+          <ul class="bullets"><li>{t("settings.limit1")}</li><li>{t("settings.limit2")}</li>
               <li>{t("settings.limit3")}</li></ul>
-        </div>
+        </section>
 
-        <div class="note">
-          <strong>{t("settings.files")}</strong>
-          <p class="path">{t("settings.configFile")}: <code>{configPath}</code></p>
-          <p class="path">{t("settings.logFile")}: <code>{logPath}</code></p>
-        </div>
+        <section class="group muted-group">
+          <h2>{t("settings.files")}</h2>
+          <p class="path">{t("settings.configFile")}<code class="selectable">{configPath}</code></p>
+          <p class="path">{t("settings.logFile")}<code class="selectable">{logPath}</code></p>
+        </section>
 
         <BuyMeCoffee label={t("settings.coffee")} title={t("settings.support")}
                      body={t("settings.supportBody")}
                      failedText={t("settings.coffeeFailed")} />
-      </section>
-    {/if}
+      {/if}
+    </div>
   </main>
 
+  <!-- ——— Sağ panel ——— -->
   <aside>
-    {#if tab === "headset"}
-      <div class="card tight">
+    {#if tab === "headset" && !headsetRunning}
+      <section class="panel">
         <h3>{t("headset.devices")}</h3>
         <DevicePicker devices={headsetPlan?.play_choices ?? []} kind="output"
                       value={headsetPlan?.play?.id ?? ""}
-                      onselect={(id) => persist({ player_device: id })}
+                      onselect={(id) => persistHeadsetDevice("play", id)}
                       label={headsetRole === "remote" ? t("device.cableLabel") : t("device.outputLabel")}
                       emptyText={t("device.none")} defaultText={t("device.default")} />
-        {#if headsetRole === "local"}
-          <DevicePicker devices={headsetPlan?.capture_choices ?? []} kind="input"
-                        value={headsetPlan?.capture?.id ?? ""}
-                        onselect={(id) => persist({ server_device_input: id })}
-                        label={t("device.micLabel")}
-                        emptyText={t("device.none")} defaultText={t("device.default")} />
-        {:else}
-          <DevicePicker devices={headsetPlan?.capture_choices ?? []} kind="monitor"
-                        value={headsetPlan?.capture?.id ?? ""}
-                        onselect={(id) => persist({ server_device_monitor: id })}
-                        label={t("device.systemSource")}
-                        emptyText={t("device.none")} defaultText={t("device.default")} />
-        {/if}
-        <button onclick={refresh}>{t("device.refresh")}</button>
-      </div>
+        <DevicePicker devices={headsetPlan?.capture_choices ?? []}
+                      kind={headsetRole === "local" ? "input" : "monitor"}
+                      value={headsetPlan?.capture?.id ?? ""}
+                      onselect={(id) => persistHeadsetDevice("capture", id)}
+                      label={headsetRole === "local" ? t("device.micLabel") : t("device.systemSource")}
+                      emptyText={t("device.none")} defaultText={t("device.default")} />
+        <button class="ghost wide" onclick={refresh}><Icon name="refresh" size={15} />{t("device.refresh")}</button>
+      </section>
 
     {:else if tab === "player"}
-      <div class="card tight">
+      <section class="panel">
         <h3>{cfg.player_mode === "mic" ? t("device.virtualCable") : t("device.output")}</h3>
         <DevicePicker devices={outputChoices} kind="output" value={cfg.player_device}
                       onselect={(id) => persist({ player_device: id })}
                       label={cfg.player_mode === "mic" ? t("device.cableLabel") : t("device.outputLabel")}
                       hint={cfg.player_mode === "mic" ? t("device.cableHint") : ""}
                       emptyText={t("device.none")} defaultText={t("device.default")} />
-        <button onclick={refresh}>{t("device.refresh")}</button>
-      </div>
+        <button class="ghost wide" onclick={refresh}><Icon name="refresh" size={15} />{t("device.refresh")}</button>
+      </section>
     {:else if tab === "server"}
-      <div class="card tight">
+      <section class="panel">
         <h3>{t("device.source")}</h3>
         {#if cfg.server_source === "monitor"}
           <DevicePicker {devices} kind="monitor" value={cfg.server_device_monitor}
@@ -803,17 +961,19 @@
                         label={t("device.micLabel")}
                         emptyText={t("device.none")} defaultText={t("device.default")} />
         {/if}
-        <button onclick={refresh}>{t("device.refresh")}</button>
-      </div>
+        <button class="ghost wide" onclick={refresh}><Icon name="refresh" size={15} />{t("device.refresh")}</button>
+      </section>
     {/if}
 
-    <div class="card tight">
+    <section class="panel">
       <h3>{t("stats.title")}</h3>
       {#if stats?.server_running}
-        <div class="grp">{t("stats.sending")} → {stats.server_target}</div>
+        <div class="grp"><Icon name="send" size={13} />{t("stats.sending")} · {stats.server_target}</div>
+        <div class="tiles">
+          <div class="tile"><span>{t("stats.packets")}</span><strong>{stats.server_packets.toLocaleString()}</strong></div>
+          <div class="tile"><span>{t("stats.bitrate")}</span><strong>{stats.server_kbps.toFixed(0)}<small> kbit/s</small></strong></div>
+        </div>
         <StatRow label={t("stats.sourceDevice")} value={stats.server_device_name} />
-        <StatRow label={t("stats.packets")} value={stats.server_packets.toLocaleString()} />
-        <StatRow label={t("stats.bitrate")} value={`${stats.server_kbps.toFixed(0)} kbit/s`} />
         <StatRow label={t("stats.silentRatio")} value={`${(stats.server_silent_ratio * 100).toFixed(0)}%`} />
         {#if stats.server_send_errors > 0}
           <StatRow label={t("stats.sendErrors")} value={String(stats.server_send_errors)} tone="bad" />
@@ -821,15 +981,21 @@
         {/if}
       {/if}
       {#if stats?.player_running}
-        <div class="grp">{t("stats.receiving")} · {t("stats.port")} {stats.player_port}</div>
-        <StatRow label={t("stats.outputDevice")} value={stats.player_device_name} />
-        <StatRow label={t("stats.packets")} value={stats.player_packets.toLocaleString()}
-                 tone={stats.player_packets === 0 ? "warn" : "normal"} />
-        {#if stats.player_packets === 0}
+        <div class="grp"><Icon name="receive" size={13} />{t("stats.receiving")} · {t("stats.port")} {stats.player_port}</div>
+        <!-- "Paket gelmiyor" yalnızca ses beklenirken bir sorun. Otomatik
+             dinleme boşta beklerken uyarmak, her açılışta kırmızı bir
+             alarm göstermek demekti. -->
+        <div class="tiles">
+          <div class="tile" class:warn={stats.player_packets === 0 && expectingAudio}>
+            <span>{t("stats.packets")}</span><strong>{stats.player_packets.toLocaleString()}</strong>
+          </div>
+          <div class="tile"><span>{t("stats.buffer")}</span><strong>{stats.player_buffer_ms}<small> ms</small></strong></div>
+        </div>
+        {#if stats.player_packets === 0 && expectingAudio}
           <p class="tip">{t("player.noPackets", { address: `${localAddress ?? "?"}:${stats.player_port}` })}</p>
         {/if}
+        <StatRow label={t("stats.outputDevice")} value={stats.player_device_name} />
         <StatRow label={t("stats.bitrate")} value={`${stats.player_kbps.toFixed(0)} kbit/s`} />
-        <StatRow label={t("stats.buffer")} value={`${stats.player_buffer_ms} ms`} />
         <StatRow label={t("stats.lost")} value={String(stats.player_lost)}
                  tone={stats.player_lost > 0 ? "warn" : "ok"} />
         <StatRow label={t("stats.late")} value={String(stats.player_late)}
@@ -838,140 +1004,299 @@
                  tone={stats.player_underruns > 0 ? "warn" : "ok"} />
         <StatRow label={t("stats.dropped")} value={String(stats.player_dropped)}
                  tone={stats.player_dropped > 0 ? "bad" : "ok"} />
+        {#if stats.player_foreign > 0}
+          <StatRow label={t("stats.foreign")} value={String(stats.player_foreign)} tone="warn" />
+        {/if}
       {/if}
-      {#if !running}<p class="idle">{t("stats.idle")}</p>{/if}
-    </div>
+      {#if !running}<p class="muted">{t("stats.idle")}</p>{/if}
+    </section>
   </aside>
 </div>
 {/if}
 
 <style>
-  .app { display: grid; grid-template-columns: 190px 1fr 300px; height: 100vh; }
-  nav {
-    background: var(--panel); border-inline-end: 1px solid var(--line);
-    padding: 18px 12px; display: flex; flex-direction: column; gap: 4px;
+  /* ——— Yerleşim ——— */
+  .app { display: grid; grid-template-columns: 220px minmax(0, 1fr) 300px; height: 100vh; }
+
+  .sidebar {
+    background: var(--surface); border-inline-end: 1px solid var(--line);
+    padding: 18px 12px 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0;
   }
-  .brand { font-weight: 700; font-size: 17px; padding: 0 10px 16px; }
-  .tab {
-    background: none; border: none; text-align: start; border-radius: 7px;
-    padding: 9px 10px; color: var(--dim);
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; padding: 2px 8px 18px; }
+  .logo {
+    display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px;
+    background: linear-gradient(135deg, var(--accent), #8b5cf6); color: #fff;
+    box-shadow: 0 4px 14px rgba(91, 140, 255, .35);
   }
-  .tab:hover { background: var(--panel-2); color: var(--text); }
-  .tab.active { background: var(--panel-2); color: var(--text); font-weight: 600; }
+  .navlist { display: flex; flex-direction: column; gap: 2px; }
+  .nav {
+    justify-content: flex-start; background: none; border: 1px solid transparent;
+    color: var(--dim); padding: 9px 11px; font-weight: 500; position: relative;
+  }
+  .nav:hover:not(:disabled) { background: var(--surface-2); color: var(--text); border-color: transparent; }
+  .nav.active { background: var(--accent-soft); color: var(--text); font-weight: 600; }
+  .nav.active :global(svg) { color: var(--accent); }
+  .pip { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); margin-inline-start: auto; box-shadow: 0 0 0 3px var(--ok-soft); }
   .spacer { flex: 1; }
-  .live { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dim); padding: 0 10px; }
-  .live .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
-  .live.on { color: var(--ok); }
-  .live.on .dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
 
-  main { padding: 22px; overflow-y: auto; }
+  .me {
+    display: flex; flex-direction: column; gap: 1px; padding: 12px;
+    border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); margin-bottom: 10px;
+  }
+  .me-label { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .5px; }
+  .me strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .me-addr { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+  .status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dim); padding: 0 8px; }
+  .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+  .status.on { color: var(--ok); }
+  .status.on .dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); animation: pulse 2s infinite; }
+  .ver { margin-inline-start: auto; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+  main { overflow-y: auto; min-width: 0; }
+  .content { max-width: 760px; margin: 0 auto; padding: 28px 32px 40px; }
+
   aside {
-    background: var(--panel); border-inline-start: 1px solid var(--line);
-    padding: 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px;
+    background: var(--surface); border-inline-start: 1px solid var(--line);
+    padding: 18px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; min-width: 0;
   }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 20px; }
-  aside .card { background: var(--panel-2); }
-  .card.tight { padding: 15px; }
-  h2 { margin: 0 0 4px; font-size: 18px; }
-  h3 { margin: 0 0 12px; font-size: 13px; color: var(--dim); text-transform: uppercase; letter-spacing: .6px; }
-  .sub { margin: 0 0 18px; color: var(--dim); font-size: 13px; }
 
-  .modes { display: grid; gap: 9px; margin-bottom: 18px; }
-  .mode {
-    display: flex; gap: 11px; align-items: flex-start;
-    border: 1px solid var(--line); border-radius: 9px; padding: 12px; cursor: pointer;
+  /* ——— Sayfa başlığı ve adımlar ——— */
+  .page { margin-bottom: 22px; }
+  .page h1 { margin: 0; font-size: 24px; font-weight: 700; }
+  .page p { margin: 6px 0 0; color: var(--dim); font-size: 13.5px; line-height: 1.55; }
+
+  .step { margin-bottom: 22px; }
+  .step h2, .group h2 {
+    display: flex; align-items: center; gap: 9px;
+    margin: 0 0 12px; font-size: 14px; font-weight: 650;
   }
-  .mode.sel { border-color: var(--accent); background: rgba(29,155,240,.09); }
-  .mode strong { display: block; font-size: 14px; }
-  .mode span { display: block; color: var(--dim); font-size: 12px; margin-top: 2px; line-height: 1.45; }
-  .mode input { margin-top: 3px; accent-color: var(--accent); }
+  .num {
+    display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--surface-3); color: var(--dim); font-size: 12px; font-weight: 700;
+  }
 
+  /* Seçim kartları */
+  .choice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+  .choice {
+    flex-direction: column; align-items: flex-start; justify-content: flex-start; text-align: start;
+    gap: 6px; padding: 16px; border-radius: var(--r-md);
+    background: var(--surface); border: 1.5px solid var(--line); font-weight: 400;
+  }
+  .choice:hover:not(:disabled) { border-color: var(--line-strong); background: var(--surface-2); }
+  .choice.sel { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .choice-icon {
+    display: grid; place-items: center; width: 38px; height: 38px; border-radius: 11px;
+    background: var(--surface-3); color: var(--dim); margin-bottom: 4px;
+  }
+  .choice.sel .choice-icon { background: var(--accent); color: var(--on-accent); }
+  .choice strong { font-size: 14px; font-weight: 650; }
+  .choice-desc { color: var(--dim); font-size: 12.5px; line-height: 1.5; }
+
+  /* Eş listesi */
+  .peer-list { display: flex; flex-direction: column; gap: 8px; }
+  .peer {
+    justify-content: flex-start; text-align: start; gap: 12px;
+    padding: 11px 14px; border-radius: var(--r-md); font-weight: 400;
+    background: var(--surface); border: 1.5px solid var(--line);
+  }
+  .peer.static { display: flex; align-items: center; cursor: default; }
+  .peer.sel { border-color: var(--accent); background: var(--accent-soft); }
+  .peer.manual { border-style: dashed; color: var(--dim); }
+  .peer.manual.sel { color: var(--text); }
+  .peer-os {
+    flex: none; display: grid; place-items: center; width: 34px; height: 34px;
+    border-radius: 10px; background: var(--surface-3); color: var(--dim);
+  }
+  .peer.sel .peer-os { color: var(--accent); }
+  .peer strong { display: block; font-size: 14px; font-weight: 600; }
+  .peer-addr { display: block; font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .tag {
+    flex: none; display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 99px;
+    background: var(--surface-3); color: var(--dim);
+  }
+  .tag.ok { background: var(--ok-soft); color: var(--ok); }
+
+  .empty {
+    display: flex; align-items: center; gap: 10px; color: var(--dim); font-size: 13px;
+    padding: 14px; border: 1px dashed var(--line); border-radius: var(--r-md); margin-bottom: 8px;
+  }
+  .spinner {
+    width: 14px; height: 14px; border-radius: 50%; flex: none;
+    border: 2px solid var(--line-strong); border-top-color: var(--accent);
+    animation: spin 0.9s linear infinite;
+  }
+
+  /* Plan özeti */
+  .plan {
+    display: flex; align-items: center; gap: 10px; padding: 12px 14px; margin-bottom: 16px;
+    border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface);
+  }
+  .plan-end { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+  .plan-icon {
+    flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px;
+    background: var(--surface-3); color: var(--dim);
+  }
+  /* Sınıf üzerinden: `.plan-end span` ikon kutusunu da (o da bir span)
+     yakalayıp `display: grid`'i eziyordu, ikon ortalanmıyordu. */
+  .plan-label { display: block; font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .4px; }
+  .plan-end strong { display: block; font-size: 13px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .plan-arrow { flex: none; color: var(--faint); }
+
+  .foot { text-align: center; color: var(--faint); font-size: 12px; margin: 10px 0 0; }
+
+  /* Oturum */
+  .session {
+    border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface);
+    padding: 20px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 16px;
+  }
+  .session-head { display: flex; gap: 12px; align-items: flex-start; }
+  .session-head strong { display: block; font-size: 16px; }
+  .session-head .grow span { display: block; color: var(--dim); font-size: 12.5px; margin-top: 3px; line-height: 1.5; }
+  .live-dot {
+    flex: none; width: 12px; height: 12px; border-radius: 50%; margin-top: 5px;
+    background: var(--ok); box-shadow: 0 0 0 4px var(--ok-soft); animation: pulse 2s infinite;
+  }
+  .session.partial .live-dot { background: var(--warn); box-shadow: 0 0 0 4px var(--warn-soft); }
+
+  .flows { display: flex; flex-direction: column; gap: 8px; }
+  .flow {
+    display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+    border-radius: var(--r-md); background: var(--surface-2);
+  }
+  .flow-icon { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; }
+  .flow-icon.up { background: var(--accent-soft); color: var(--accent); }
+  .flow-icon.down { background: var(--ok-soft); color: var(--ok); }
+  .flow-label { display: block; font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .4px; }
+  .flow strong { display: block; font-size: 13px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .flow-num { font-variant-numeric: tabular-nums; color: var(--dim); font-size: 12.5px; }
+
+  .howto {
+    border-radius: var(--r-md); padding: 14px 16px; font-size: 13px;
+    background: var(--surface-2); border: 1px solid var(--line);
+  }
+  .howto.ok { background: var(--ok-soft); border-color: transparent; margin-bottom: 18px; }
+  .howto strong { display: block; margin-bottom: 4px; }
+  .howto ol { margin: 6px 0 0; padding-inline-start: 20px; }
+  .howto li { margin: 5px 0; line-height: 1.5; }
+  .howto li.done { color: var(--dim); }
+  .howto p { margin: 6px 0 0; color: var(--dim); line-height: 1.5; font-size: 12.5px; }
+  .note-warn { display: flex; gap: 6px; align-items: flex-start; color: var(--warn) !important; }
+  .note-warn :global(svg) { flex: none; margin-top: 2px; }
+
+  /* Bantlar */
+  .banner {
+    display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; margin-bottom: 16px;
+    border-radius: var(--r-md); font-size: 13px; border: 1px solid transparent;
+  }
+  .banner > :global(svg) { flex: none; margin-top: 1px; }
+  .banner strong { display: block; }
+  .banner span { display: block; color: var(--dim); line-height: 1.5; }
+  .banner.bad { background: var(--bad-soft); border-color: rgba(240,93,93,.35); }
+  .banner.bad > :global(svg) { color: var(--bad); }
+  .banner.warn { background: var(--warn-soft); border-color: rgba(240,177,61,.30); }
+  .banner.warn > :global(svg) { color: var(--warn); }
+  .banner.ok { background: var(--ok-soft); border-color: rgba(52,199,123,.30); }
+  .banner.ok > :global(svg) { color: var(--ok); }
+  .banner.info { background: var(--accent-soft); border-color: var(--accent-line); align-items: center; }
+  .banner.info > :global(svg) { color: var(--accent); }
+  .banner button { flex: none; }
+  .icon { padding: 6px; }
+  .grow { flex: 1; min-width: 0; }
+
+  /* Formlar */
   .field { display: block; margin-bottom: 16px; }
-  .lbl { display: block; font-size: 12px; color: var(--dim); margin-bottom: 6px; }
-  .hint { display: block; font-size: 11px; color: var(--dim); margin-top: 5px; line-height: 1.45; }
+  .lbl { display: block; font-size: 12px; color: var(--dim); margin-bottom: 6px; font-weight: 500; }
+  .hint { display: block; font-size: 12px; color: var(--faint); margin-top: 6px; line-height: 1.5; }
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 
-  .check { display: flex; gap: 11px; align-items: flex-start; margin-bottom: 18px; }
-  .check input { margin-top: 3px; accent-color: var(--accent); }
-  .check strong { display: block; }
-  .check span { display: block; color: var(--dim); font-size: 12px; margin-top: 3px; line-height: 1.45; }
-
-  .note { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 4px; font-size: 12px; color: var(--dim); }
-  .note ul { margin: 8px 0 0; padding-inline-start: 18px; }
-  .note li { margin: 4px 0; line-height: 1.5; }
-  .path { margin: 6px 0 0; }
-  .path code { color: var(--text); font-size: 11px; user-select: text; }
-
-  .pair-code {
-    background: #1d2a44; border: 1px solid #2f4b7d; border-radius: 8px;
-    padding: 12px 14px; margin: 12px 0;
+  .addr {
+    border: 1px solid var(--line); border-radius: var(--r-md); padding: 14px 16px;
+    margin-bottom: 18px; background: var(--surface);
   }
-  .pair-code .code {
-    font-size: 30px; letter-spacing: 6px; font-weight: 700;
-    font-variant-numeric: tabular-nums; margin: 8px 0 4px; user-select: all;
+  .addr strong { display: block; font-size: 18px; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+
+  /* Ayarlar */
+  .group {
+    border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface);
+    padding: 18px; margin-bottom: 14px;
   }
-  .pair-row { display: flex; gap: 8px; align-items: center; }
-  .pair-row button { width: auto; margin: 0; flex: 0 0 auto; }
-  .code-input {
-    width: 120px; font-size: 20px; letter-spacing: 4px; text-align: center;
-    font-variant-numeric: tabular-nums;
+  .group .field:last-child { margin-bottom: 0; }
+  .muted-group { background: transparent; }
+  .muted { color: var(--dim); font-size: 13px; margin: 0; }
+  .bullets { margin: 0; padding-inline-start: 18px; color: var(--dim); font-size: 12.5px; }
+  .bullets li { margin: 5px 0; line-height: 1.5; }
+  .path { margin: 8px 0 0; font-size: 12px; color: var(--dim); display: flex; flex-direction: column; gap: 3px; }
+  .path code { color: var(--text); font-size: 11.5px; word-break: break-all; }
+
+  .toggle { display: flex; gap: 14px; align-items: flex-start; padding: 10px 0; cursor: pointer; position: relative; }
+  .toggle + .toggle { border-top: 1px solid var(--line); }
+  .toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .switch {
+    flex: none; width: 38px; height: 22px; border-radius: 99px; margin-top: 1px;
+    background: var(--surface-3); border: 1px solid var(--line-strong); position: relative;
+    transition: background 160ms var(--ease);
   }
-  .paired { margin: 6px 0 0; padding-left: 0; list-style: none; }
-  .paired li { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-  .link {
-    width: auto; margin: 0; background: none; border: none; padding: 2px 0;
-    color: #7aa2f7; text-decoration: underline; cursor: pointer; font-size: 12px;
+  .switch::after {
+    content: ""; position: absolute; top: 2px; inset-inline-start: 2px; width: 16px; height: 16px;
+    border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3);
+    transition: transform 160ms var(--ease);
   }
+  .toggle input:checked + .switch { background: var(--accent); border-color: transparent; }
+  .toggle input:checked + .switch::after { transform: translateX(16px); }
+  :global([dir="rtl"]) .toggle input:checked + .switch::after { transform: translateX(-16px); }
+  .toggle input:focus-visible + .switch { box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 1px var(--accent); }
+  .toggle strong { display: block; font-size: 14px; font-weight: 600; }
+  .toggle div span { display: block; color: var(--dim); font-size: 12.5px; margin-top: 2px; line-height: 1.5; }
 
-  .remote-banner {
-    display: flex; align-items: center; gap: 12px; justify-content: space-between;
-    background: #1d2a44; border: 1px solid #2f4b7d; border-radius: 8px;
-    padding: 10px 14px; margin-bottom: 14px;
+  .paired { list-style: none; margin: 0; padding: 0; }
+  .paired li {
+    display: flex; align-items: center; gap: 10px; padding: 8px 4px;
+    border-bottom: 1px solid var(--line); font-size: 13px;
   }
-  .remote-banner button { width: auto; margin: 0; flex: 0 0 auto; }
+  .paired li:last-child { border-bottom: none; }
+  .paired li :global(svg) { color: var(--ok); flex: none; }
 
-  .err {
-    display: flex; align-items: center; gap: 10px;
-    background: rgba(229,83,75,.12); border: 1px solid var(--bad);
-    border-radius: 9px; padding: 11px 14px; margin-bottom: 16px; font-size: 13px;
+  /* Sağ panel */
+  .panel {
+    border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); padding: 15px;
   }
-  .err .x { margin-inline-start: auto; background: none; border: none; padding: 2px 6px; color: var(--dim); }
-  .err .fb { margin: 4px 0 0; color: var(--dim); line-height: 1.5; }
-
-  .addr { border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px;
-          margin-bottom: 16px; background: var(--panel-2); }
-  .addr strong { display: block; font-size: 17px; margin: 4px 0 2px;
-                 font-variant-numeric: tabular-nums; user-select: text; }
-
-  .mic-ok, .mic-info { border-radius: 9px; padding: 12px 14px; margin-bottom: 16px; font-size: 12px; }
-  .mic-ok { border: 1px solid var(--ok); background: rgba(47,191,113,.10); }
-  .mic-info { border: 1px solid var(--line); background: var(--panel-2); }
-  .mic-ok p, .mic-info p { margin: 5px 0 0; color: var(--dim); line-height: 1.5; }
-  .warn-line { color: var(--warn) !important; }
-  .steps { margin: 8px 0 0; padding-inline-start: 20px; }
-  .steps li { margin: 5px 0; line-height: 1.5; color: var(--text); }
-  .steps li.done { color: var(--dim); }
-  .steps .pick { font-weight: 600; }
-  .aside-note { font-size: 11px; }
-
-  .plan {
-    border: 1px solid var(--line); border-radius: 9px;
-    padding: 10px 14px; margin-bottom: 16px; background: var(--panel-2);
+  .panel h3 {
+    margin: 0 0 12px; font-size: 11.5px; color: var(--faint);
+    text-transform: uppercase; letter-spacing: .7px; font-weight: 650;
   }
-  .plan .row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: 12px; }
-  .plan .row span { color: var(--dim); }
+  .wide { width: 100%; }
+  .grp {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .5px;
+    margin: 14px 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .grp:first-of-type { margin-top: 0; }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+  .tile {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 9px 10px;
+  }
+  .tile.warn { border-color: rgba(240,177,61,.4); }
+  .tile span { display: block; font-size: 11px; color: var(--faint); }
+  .tile strong { display: block; font-size: 17px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .tile small { font-size: 11px; color: var(--dim); font-weight: 500; }
+  .tip { font-size: 12px; color: var(--warn); margin: 4px 0 10px; line-height: 1.5; }
 
-  .peers { margin-bottom: 18px; }
-  .peers ul { list-style: none; margin: 6px 0 0; padding: 0; }
-  .peers li { display: flex; align-items: center; gap: 9px; padding: 9px 12px;
-              border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; font-size: 13px; }
-  .pdot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
-  .pdot.on { background: var(--ok); }
-  .paddr { color: var(--dim); font-variant-numeric: tabular-nums; }
-  .pos { color: var(--dim); margin-inline-start: auto; font-size: 11px; text-transform: uppercase; }
+  .selectable { user-select: text; }
 
-  .grp { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .5px; margin: 10px 0 4px; }
-  .grp:first-child { margin-top: 0; }
-  .idle { color: var(--dim); font-size: 13px; margin: 0; }
-  .tip { font-size: 11px; color: var(--warn); margin: 6px 0 10px; line-height: 1.45; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+
+  /* Dar pencere: sağ paneli alta al. */
+  @media (max-width: 960px) {
+    .app { grid-template-columns: 200px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+    .sidebar { grid-row: 1 / span 2; }
+    aside {
+      grid-column: 2; border-inline-start: none; border-top: 1px solid var(--line);
+      max-height: 38vh; flex-direction: row; flex-wrap: wrap;
+    }
+    aside .panel { flex: 1 1 260px; }
+    .content { padding: 22px; }
+  }
 </style>

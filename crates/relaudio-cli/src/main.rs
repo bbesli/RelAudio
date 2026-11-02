@@ -275,7 +275,7 @@ fn cmd_recv(args: &[String]) -> relaudio_core::Result<()> {
     spawn_reporter_recv(stats.clone(), stop.clone());
     install_sigint(stop.clone());
 
-    receive_loop(port, &device, target_packets, stop, stats)
+    receive_loop(port, &device, target_packets, Vec::new(), stop, stats)
 }
 
 fn install_sigint(stop: Stopper) {

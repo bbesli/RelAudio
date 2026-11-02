@@ -51,6 +51,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             "show" => show_main(app),
             "stop_all" => {
                 let state = app.state::<AppState>();
+                state.headset_active.store(false, Ordering::Relaxed);
                 state.server.stop();
                 state.player.stop();
                 // Karşı taraf da dursun — yalnızca bizim durmamız onu yayında

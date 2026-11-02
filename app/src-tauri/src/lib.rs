@@ -60,6 +60,14 @@ pub struct AppState {
     /// bastıktan sonra mikrofon yayında kalıyordu. Kontrol kanalı ayrı bir
     /// thread'de çalıştığı için bu artık kuramsal değil.
     pub session_lock: Mutex<()>,
+    /// Kulaklık modu açık mı?
+    ///
+    /// Eskiden arayüz bunu "gönderici VE alıcı çalışıyor" diye tahmin
+    /// ediyordu. `auto_listen` yüzünden alıcı hep açık olduğu için Sunucu
+    /// sekmesinden elle yayın başlatmak Kulaklık sekmesinde yanlışlıkla
+    /// "Durdur" gösteriyordu; tersine, uzaktan başlatılan makinede de durum
+    /// yalnızca tahmindi. Artık açıkça tutuluyor.
+    pub headset_active: AtomicBool,
 }
 
 /// Bu makinede kulaklık modunu uzaktan başlatan taraf.
@@ -74,6 +82,10 @@ pub struct RemoteOrigin {
 pub struct StartedPeer {
     pub name: String,
     pub control: std::net::SocketAddr,
+    /// Karşı tarafta toplantı uygulamasında seçilecek mikrofon (uzak rolü o
+    /// üstlendiyse). Arayüz yeniden yüklense de talimat kaybolmasın diye
+    /// burada tutuluyor, arayüzün belleğinde değil.
+    pub paired_mic: Option<String>,
 }
 
 impl Default for AppState {
@@ -90,6 +102,7 @@ impl Default for AppState {
             started_peer: Mutex::new(None),
             pairing: Pairing::default(),
             session_lock: Mutex::new(()),
+            headset_active: AtomicBool::new(false),
         }
     }
 }
@@ -105,6 +118,9 @@ pub struct PeerDto {
     pub listening: bool,
     /// Eş uzaktan başlatmayı destekliyor mu? (kontrol portunu ilan ediyorsa)
     pub can_remote_start: bool,
+    /// Eşin kalıcı kurulum kimliği; eşleştirme bunun üzerinden yapılıyor.
+    /// mDNS örnek adı (`id`) çakışmada değişebildiği için ona güvenilmiyor.
+    pub device_id: String,
 }
 
 #[derive(Serialize)]
@@ -139,6 +155,8 @@ pub struct StatsDto {
     pub player_late: u64,
     pub player_underruns: u64,
     pub player_dropped: u64,
+    /// Oturumun karşı ucundan gelmediği için atılan paketler.
+    pub player_foreign: u64,
     pub player_buffer_ms: u64,
     /// Çalınan sesin tepe genliği (0–32767). Seviye çubuğu için.
     pub player_peak: u64,
@@ -155,6 +173,14 @@ pub struct StatsDto {
     pub player_device_id: String,
     pub server_device_id: String,
 
+    /// Kulaklık modu açık mı? Arayüz "Durdur" düğmesini buna göre gösteriyor.
+    pub headset_active: bool,
+    /// Bu makinenin uzaktan başlattığı karşı taraf (adı ve oradaki mikrofon).
+    /// Oturumun iki taraflı olup olmadığını arayüz buradan okuyor; eskiden
+    /// kendi belleğindeki son "başlat" sonucuna bakıyordu ve pencere yeniden
+    /// yüklenince çalışan bir oturum "yarım başladı" görünüyordu.
+    pub linked_peer: Option<String>,
+    pub linked_paired_mic: Option<String>,
     /// Bu makinede kulaklık modu uzaktan mı başlatıldı, kim tarafından?
     pub started_by: Option<RemoteOrigin>,
     /// Ekranda gösterilmesi gereken eşleştirme kodu ve kalan saniye.
@@ -162,6 +188,13 @@ pub struct StatsDto {
     /// başlatmayı kendiliğinden tekrar deniyor.
     pub pairing_code: Option<String>,
     pub pairing_seconds: u64,
+    /// Eşleşilmiş cihazların kurulum kimlikleri.
+    ///
+    /// Arayüz "bu eşle eşleştik mi?" sorusunu buradan yanıtlıyor. Eskiden
+    /// ayrı bir çağrı ve arayüzdeki config kopyası kullanılıyordu; kodu
+    /// *gösteren* makine, karşı taraf kodu girdiğinde bunu hiç fark
+    /// etmiyordu çünkü anahtar Rust tarafında yazılıyor, kopya bayat kalıyordu.
+    pub paired_ids: Vec<String>,
 
     /// Kullanıcıya gösterilecek son hata; okununca temizlenir.
     pub last_error: Option<String>,
@@ -235,11 +268,18 @@ impl From<audio::HeadsetPlan> for HeadsetPlanDto {
 /// Bir rol için kayıtlı seçimleri de dikkate alarak planı çözer.
 fn plan_for(cfg: &Config, role: HeadsetRole) -> audio::HeadsetPlan {
     let devices = audio::list_devices().unwrap_or_default();
-    let saved_capture = match role {
-        HeadsetRole::Local => &cfg.server_device_input,
-        HeadsetRole::Remote => &cfg.server_device_monitor,
-    };
-    audio::headset_plan(role, &devices, &cfg.player_device, saved_capture)
+    let (saved_play, saved_capture) = saved_headset_devices(cfg, role);
+    audio::headset_plan(role, &devices, saved_play, saved_capture)
+}
+
+/// Bir rol için kayıtlı kulaklık aygıtları (çalma, yakalama).
+/// Oynatıcı/Sunucu sekmelerinin ayarlarından bağımsız — bkz.
+/// `Config::headset_local_play`.
+fn saved_headset_devices(cfg: &Config, role: HeadsetRole) -> (&str, &str) {
+    match role {
+        HeadsetRole::Local => (&cfg.headset_local_play, &cfg.headset_local_capture),
+        HeadsetRole::Remote => (&cfg.headset_remote_play, &cfg.headset_remote_capture),
+    }
 }
 
 /// Arayüz için plan. Kayıtlı seçimler argüman olarak geliyor, diskten
@@ -274,13 +314,11 @@ fn headset_plan(
 /// kontrol karakteri içerebiliyor. Loga ham yazmak satır uydurmaya, arayüze
 /// ham vermek bandı taşırmaya yarardı.
 fn sanitize_peer_name(raw: &str) -> String {
-    let cleaned: String = raw
-        .chars()
-        .filter(|c| !c.is_control())
-        .take(48)
-        .collect();
-    let trimmed = cleaned.trim();
-    if trimmed.is_empty() { "?".into() } else { trimmed.to_string() }
+    // Keşifle aynı kural: kontrol ve yön denetim karakterleri atılıyor. Eskiden
+    // yalnızca kontrol karakterleri atılıyordu; U+202E ile bir ad ekranda
+    // başka bir cihazın adı gibi okunabiliyordu.
+    let cleaned = net::sanitize_display(raw, 48);
+    if cleaned.is_empty() { "?".into() } else { cleaned }
 }
 
 /// Karşı tarafın bildirdiği kalıcı kimlik. Ad gibi bu da denetimsiz metin ve
@@ -294,24 +332,35 @@ fn sanitize_peer_id(raw: &str) -> String {
     if cleaned.is_empty() { "?".into() } else { cleaned }
 }
 
-/// Bu makinenin kalıcı kimliği — mDNS örnek adıyla aynı üretim kuralı,
-/// eşleştirmenin iki tarafında da aynı dizeyi kullanmak için.
-pub fn own_id() -> String {
-    sanitize_peer_id(&format!(
-        "{}-{}",
-        net::device_name(),
-        if cfg!(target_os = "windows") { "windows" } else { "linux" }
-    ))
+/// Bu kurulumun kalıcı kimliği (ayar dosyasından).
+///
+/// Eskiden `{hostname}-{os}` hesaplanıyordu. İki makinenin adı aynıysa
+/// kimlikleri de aynı oluyordu; üstelik mDNS çakışmada örnek adını
+/// "... (2)" diye değiştirdiği için ilan edilen ad ile hesaplanan kimlik
+/// ayrışıyordu. Eşleştirme bu yüzden sessizce hiç kurulmuyordu.
+pub fn own_id(state: &AppState) -> String {
+    state.config.lock().unwrap().device_id.clone()
+}
+
+/// Eşin eşleştirme kimliği. Boşsa eş eski bir sürüm ya da henüz TXT
+/// kaydını yaymamış demektir.
+fn peer_key_id(peer: &relaudio_core::net::Peer) -> Option<String> {
+    let id = sanitize_peer_id(&peer.device_id);
+    if peer.device_id.is_empty() || id == "?" { None } else { Some(id) }
 }
 
 /// Bir rolü bu makinede fiilen başlatır. Hem yerel düğme hem uzaktan gelen
 /// istek buradan geçiyor — iki yol arasında davranış farkı olmasın diye.
 /// Hata, `(kod, metin)` çifti olarak dönüyor: kod karşı tarafta çevrilebilsin,
 /// metin bilinmeyen bir kodda yedek kalsın.
+///
+/// `peer_addrs`: karşı ucun bilinen bütün adresleri. Alıcı yalnızca bunlardan
+/// (ve hedefin kendisinden) gelen sesi kabul ediyor.
 fn start_headset_locally(
     state: &AppState,
     role: HeadsetRole,
     target: &str,
+    peer_addrs: &[std::net::IpAddr],
 ) -> Result<audio::HeadsetPlan, (&'static str, String)> {
     let _serialized = state.session_lock.lock().unwrap();
     let cfg = state.config.lock().unwrap().clone();
@@ -327,9 +376,31 @@ fn start_headset_locally(
         }
     };
 
+    // Kulaklık oturumunda alıcı yalnızca karşı uçtan ses kabul ediyor.
+    // Kilitlenmezse ağdaki herkes bu porta paket atıp oturumu devralabiliyor;
+    // uzak rolde bu ses toplantının mikrofonuna gidiyordu. Hedef bir ad ise
+    // (elle yazılmış makine adı) çözümlüyoruz; çözülemezse kilitsiz açmak
+    // yerine başlatmayı reddediyoruz.
+    let target_ip = {
+        use std::net::ToSocketAddrs;
+        target
+            .to_socket_addrs()
+            .ok()
+            .and_then(|mut it| it.next())
+            .map(|a| a.ip())
+            .ok_or(("device_open", format!("could not resolve {target}")))?
+    };
+    // Tek adres yetmiyor: aynı ağa hem kablolu hem Wi-Fi bağlı bir eş birden
+    // fazla adres ilan ediyor ve paketleri hangisinden göndereceğini işletim
+    // sistemi seçiyor. Yalnızca birine kilitlemek sesi sessizce kesiyordu.
+    let mut allow: Vec<std::net::IpAddr> = peer_addrs.to_vec();
+    if !allow.contains(&target_ip) {
+        allow.push(target_ip);
+    }
+
     state
         .player
-        .start(cfg.player_port, &play.id, cfg.player_buffer)
+        .start(cfg.player_port, &play.id, cfg.player_buffer, allow)
         .map_err(|e| ("device_open", e))?;
     announce_port(state, cfg.player_port, true);
 
@@ -342,24 +413,25 @@ fn start_headset_locally(
     }
 
     // Seçilen aygıtlar diske yazılıyor ki bir dahakine (ve uzaktan gelen
-    // istekte) aynı seçim tekrarlansın.
+    // istekte) aynı seçim tekrarlansın. **Yalnızca kulaklık alanlarına**:
+    // Oynatıcı sekmesinin ayarlarına dokunmak, oturum bitince oynatıcının
+    // sanal kabloya kilitsiz açılmasına yol açıyordu.
     {
         let mut c = state.config.lock().unwrap();
         c.headset_role = role.as_str().to_string();
-        c.player_device = play.id.clone();
-        c.player_mode = if role == HeadsetRole::Remote { "mic".into() } else { "listen".into() };
-        match plan.capture_kind {
-            DeviceKind::Input => {
-                c.server_source = "input".into();
-                c.server_device_input = capture.id.clone();
+        match role {
+            HeadsetRole::Local => {
+                c.headset_local_play = play.id.clone();
+                c.headset_local_capture = capture.id.clone();
             }
-            _ => {
-                c.server_source = "monitor".into();
-                c.server_device_monitor = capture.id.clone();
+            HeadsetRole::Remote => {
+                c.headset_remote_play = play.id.clone();
+                c.headset_remote_capture = capture.id.clone();
             }
         }
         c.save();
     }
+    state.headset_active.store(true, Ordering::Relaxed);
     Ok(plan)
 }
 
@@ -371,13 +443,14 @@ fn start_headset_locally(
 /// "hiç ses gelmiyor" diye fark ediyordu.
 fn stop_headset_locally(state: &AppState) {
     let _serialized = state.session_lock.lock().unwrap();
+    state.headset_active.store(false, Ordering::Relaxed);
     state.server.stop();
     state.player.stop();
     *state.started_by.lock().unwrap() = None;
 
     let cfg = state.config.lock().unwrap().clone();
     if cfg.auto_listen {
-        match state.player.start(cfg.player_port, &cfg.player_device, cfg.player_buffer) {
+        match state.player.start(cfg.player_port, &cfg.player_device, cfg.player_buffer, Vec::new()) {
             Ok(()) => {
                 announce_port(state, cfg.player_port, true);
                 return;
@@ -537,7 +610,9 @@ fn handle_control(state: &AppState, req: &ControlRequest, from: std::net::IpAddr
 
             let who = sanitize_peer_name(name);
             let target = format!("{from}:{audio_port}");
-            match start_headset_locally(state, role, &target) {
+            // Bizi başlatan taraf bize TCP ile bağlandı; o bağlantının kaynağı,
+            // UDP'sinin de çıkacağı adres (aynı yönlendirme).
+            match start_headset_locally(state, role, &target, &[from]) {
                 Ok(plan) => {
                     log::info!(
                         "kulaklık modu uzaktan başlatıldı: {who} ({from}) — rol {}",
@@ -559,6 +634,18 @@ fn handle_control(state: &AppState, req: &ControlRequest, from: std::net::IpAddr
         ControlRequest::Pair { code, id, name } => {
             // Kodu **gösteren** taraf burası. Kullanıcı kodu okuduğu makinede
             // değil, yazdığı makinede giriyor; istek bize oradan geliyor.
+            //
+            // Kimlik, kodu harcamadan önce denetleniyor: geçersiz bir kimlikle
+            // gelen istek doğru kodu tüketip işe yaramaz bir eşleşme
+            // bırakmasın. Kimlik 32 hex (bkz. `new_device_id`); başka biçim,
+            // eski bir sürüm ya da uydurma bir istek demek.
+            if id.len() != 32 || !id.chars().all(|c| c.is_ascii_hexdigit()) {
+                return ControlReply::failed(
+                    me,
+                    "version",
+                    "the other machine runs an older RelAudio — update both sides",
+                );
+            }
             match state.pairing.redeem(code) {
                 Ok(key) => {
                     let who = sanitize_peer_name(name);
@@ -570,7 +657,7 @@ fn handle_control(state: &AppState, req: &ControlRequest, from: std::net::IpAddr
                         PairedPeer { key: key.clone(), name: who },
                     );
                     cfg.save();
-                    ControlReply::paired(me, own_id(), key)
+                    ControlReply::paired(me, own_id(state), key)
                 }
                 Err(e) => {
                     log::warn!("eşleştirme reddedildi ({from}): {}", e.code());
@@ -649,15 +736,23 @@ fn start_headset(
     let role = HeadsetRole::parse(&args.role).ok_or_else(|| format!("bilinmeyen rol: {}", args.role))?;
 
     // Hedefi çöz: keşfedilen eş varsa onun ilan ettiği adres, yoksa elle girilen.
-    let peer = if args.peer_id.is_empty() {
-        None
+    // Elle yazılan adres keşfedilen bir eşinkiyle aynıysa o eşi kullanıyoruz:
+    // aksi hâlde kullanıcı aynı makineyi IP'siyle yazdı diye eşleştirme ve
+    // uzaktan başlatma kayboluyordu.
+    let peers = state
+        .discovery
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|d| d.peers())
+        .unwrap_or_default();
+    let typed_host = args.address.trim().split(':').next().unwrap_or("").to_string();
+    let peer = if !args.peer_id.is_empty() {
+        peers.into_iter().find(|p| p.id == args.peer_id)
+    } else if !typed_host.is_empty() {
+        peers.into_iter().find(|p| p.address == typed_host)
     } else {
-        state
-            .discovery
-            .lock()
-            .unwrap()
-            .as_ref()
-            .and_then(|d| d.peers().into_iter().find(|p| p.id == args.peer_id))
+        None
     };
     let audio_target = match &peer {
         Some(p) => format!("{}:{}", p.address, p.port),
@@ -668,15 +763,6 @@ fn start_headset(
             }
             if a.contains(':') { a.to_string() } else { format!("{a}:{DEFAULT_PORT}") }
         }
-    };
-
-    let plan = start_headset_locally(&state, role, &audio_target).map_err(|(_, e)| e)?;
-    // Kendi düğmemize bastık; uzaktan başlatılmış sayılmayız.
-    *state.started_by.lock().unwrap() = None;
-
-    let mut out = HeadsetStartResult {
-        remote_paired_mic: plan.paired_mic,
-        ..Default::default()
     };
 
     // Karşı tarafın kontrol portunu yalnızca mDNS'ten biliyoruz. Elle adres
@@ -691,24 +777,58 @@ fn start_headset(
         }
     };
 
+    // Uzaktan başlatılabilecek bir eş mi? Keşfedilmiş, kontrol portu ilan
+    // eden ve kurulum kimliği bilinen bir eş olmalı — anahtar o kimliğe göre
+    // saklanıyor. Keşfedilmemiş bir adreste eşleşmeyi bulmanın yolu yok.
+    let remote_capable = peer
+        .as_ref()
+        .is_some_and(|p| p.control_port != 0 && peer_key_id(p).is_some());
+
     let (my_port, paired_key) = {
         let cfg = state.config.lock().unwrap();
         let key = peer
             .as_ref()
-            .and_then(|p| cfg.paired.get(&sanitize_peer_id(&p.id)))
+            .and_then(peer_key_id)
+            .and_then(|id| cfg.paired.get(&id))
             .map(|p| p.key.clone());
         (cfg.player_port, key)
     };
 
-    // Eşleşmemişsek istek göndermenin anlamı yok: karşı taraf reddedecek.
-    // Bunun yerine kodu ekranda gösteriyoruz; kullanıcı karşı makinede
-    // yazınca eşleşme kuruluyor ve düğmeye bir daha basılıyor.
-    let Some(key) = paired_key else {
+    // **Eşleşme denetimi başlatmadan önce.** Eskiden önce kendi yarımız
+    // başlatılıyor, sonra eşleşme olmadığı görülüp kod gösteriliyordu:
+    // kullanıcı ekranda bir kod ve aynı anda kimsenin dinlemediği bir
+    // makineye akan bir yayın görüyordu.
+    if remote_capable && paired_key.is_none() {
+        let mut out = HeadsetStartResult::default();
         out.needs_pairing = true;
-        out.pairing_code = state.pairing.new_code();
+        out.pairing_code = ensure_code(&state);
         out.remote_error_code = Some("needs_pairing".into());
         out.remote_error = Some("not paired yet".into());
-        log::info!("eşleşme yok — eşleştirme kodu gösteriliyor");
+        log::info!("eşleşme yok — eşleştirme kodu gösteriliyor, yayın başlatılmadı");
+        return Ok(out);
+    }
+
+    let peer_addrs: Vec<std::net::IpAddr> = peer
+        .as_ref()
+        .map(|p| p.addresses.iter().filter_map(|a| a.parse().ok()).collect())
+        .unwrap_or_default();
+    let plan = start_headset_locally(&state, role, &audio_target, &peer_addrs)
+        .map_err(|(_, e)| e)?;
+    // Kendi düğmemize bastık; uzaktan başlatılmış sayılmayız.
+    *state.started_by.lock().unwrap() = None;
+
+    let mut out = HeadsetStartResult {
+        remote_paired_mic: plan.paired_mic,
+        ..Default::default()
+    };
+
+    // Eş uzaktan başlatmayı desteklemiyorsa (eski sürüm, ayar kapalı ya da
+    // listede görünmeyen elle yazılmış adres) kendi yarımız çalışıyor ve
+    // kullanıcıya karşı tarafı elle başlatması söyleniyor.
+    let Some(key) = paired_key else {
+        let code = if peer.is_some() { "no_control" } else { "manual_target" };
+        out.remote_error_code = Some(code.into());
+        out.remote_error = Some("the other machine was not started remotely".into());
         return Ok(out);
     };
 
@@ -722,7 +842,7 @@ fn start_headset(
         role: opposite.as_str().to_string(),
         audio_port: my_port,
         name: net::device_name(),
-        auth: Some(ControlAuth { id: own_id(), nonce, ts, mac }),
+        auth: Some(ControlAuth { id: own_id(&state), nonce, ts, mac }),
     };
 
     // `parse::<SocketAddr>` yalnızca sayısal adresi kabul ediyor; kullanıcı
@@ -742,12 +862,19 @@ fn start_headset(
                 out.remote_started = true;
                 out.remote_name = sanitize_peer_name(&reply.name);
                 // Uzak rolü karşı taraf üstlendiyse mikrofon adını o biliyor.
+                // Ağdan gelen metin: ekrana girmeden önce daraltılıyor.
+                let their_mic = reply
+                    .paired_mic
+                    .as_deref()
+                    .map(|m| net::sanitize_display(m, 96))
+                    .filter(|m| !m.is_empty());
                 if role == HeadsetRole::Local {
-                    out.remote_paired_mic = reply.paired_mic;
+                    out.remote_paired_mic = their_mic.clone();
                 }
                 *state.started_peer.lock().unwrap() = Some(StartedPeer {
                     name: sanitize_peer_name(&reply.name),
                     control: addr,
+                    paired_mic: if role == HeadsetRole::Local { their_mic } else { None },
                 });
                 log::info!("karşı taraf uzaktan başlatıldı: {control_addr}");
             }
@@ -764,6 +891,20 @@ fn start_headset(
                         .map(|e| e.chars().filter(|c| !c.is_control()).take(200).collect())
                         .unwrap_or_else(|| "refused".into()),
                 );
+                // Karşı taraf bizi tanımıyorsa (o tarafta eşleşme silinmiş ya da
+                // iki taraf aynı anda farklı anahtarlarla eşleşmiş) bizdeki
+                // anahtar bayattır. Silmezsek iki makine de "eşleşmiş"
+                // görünüyor ama hiçbir başlatma çalışmıyor ve arayüz yeniden
+                // eşleşme yolu göstermiyor.
+                if matches!(out.remote_error_code.as_deref(), Some("auth_bad" | "needs_pairing")) {
+                    if let Some(id) = peer.as_ref().and_then(peer_key_id) {
+                        let mut cfg = state.config.lock().unwrap();
+                        if cfg.paired.remove(&id).is_some() {
+                            log::warn!("karşı taraf eşleşmeyi tanımadı — bayat anahtar silindi: {id}");
+                            cfg.save();
+                        }
+                    }
+                }
             }
             Err(e) => out.remote_error = Some(e.to_string()),
         },
@@ -800,7 +941,7 @@ fn pair_with_peer(
     );
     let req = ControlRequest::Pair {
         code: code.trim().to_string(),
-        id: own_id(),
+        id: own_id(&state),
         name: net::device_name(),
     };
     let reply = net::control_send(addr, &req, CONNECT_TIMEOUT, REPLY_TIMEOUT)
@@ -812,12 +953,41 @@ fn pair_with_peer(
         return Err("pair_bad_reply".into());
     };
     let their_id = sanitize_peer_id(&their_id);
+    if their_id == "?" || their_id.is_empty() {
+        return Err("pair_bad_reply".into());
+    }
     let name = sanitize_peer_name(&reply.name);
     log::info!("eşleştirildi: {name} [{their_id}]");
-    let mut cfg = state.config.lock().unwrap();
-    cfg.paired.insert(their_id, PairedPeer { key, name: name.clone() });
-    cfg.save();
+    {
+        let mut cfg = state.config.lock().unwrap();
+        cfg.paired.insert(their_id, PairedPeer { key, name: name.clone() });
+        cfg.save();
+    }
+    // Karşının kodunu kullandık; bizim ekranımızdaki kod artık gereksiz.
+    // Canlı bırakılırsa 3 dakika boyunca başka biri onunla eşleşmeyi
+    // deneyebilirdi.
+    state.pairing.clear_code();
     Ok(name)
+}
+
+/// Ekranda gösterilecek kod. Varsa mevcut olanı döndürüyor, yoksa üretiyor.
+///
+/// Kodun **her iki makinede de** görünür olması gerekiyor: kullanıcı hangi
+/// makinenin başında olursa olsun oradaki kodu okuyup diğerine yazabilsin.
+/// Eskiden kod yalnızca "başlat"a basılan makinede üretiliyordu, dolayısıyla
+/// kullanıcı kodu girmek istediği makinede hiçbir kod göremiyordu.
+fn ensure_code(state: &AppState) -> Option<String> {
+    state
+        .pairing
+        .visible_code()
+        .map(|(c, _)| c)
+        .or_else(|| state.pairing.new_code())
+}
+
+/// Bu makinenin eşleştirme kodu — karşı tarafa yazılacak olan.
+#[tauri::command]
+fn pairing_code(state: tauri::State<'_, AppState>) -> Option<String> {
+    ensure_code(&state)
 }
 
 /// Ekranda duran kodu iptal eder.
@@ -826,17 +996,10 @@ fn cancel_pairing(state: tauri::State<'_, AppState>) {
     state.pairing.clear_code();
 }
 
-/// Seçili eşle eşleşilmiş mi? Arayüz düğmeye basmadan önce bunu gösteriyor.
+/// Eşleştirmeyi kaldırır. Argüman eşin **kurulum kimliği**.
 #[tauri::command]
-fn is_paired(state: tauri::State<'_, AppState>, peer_id: String) -> bool {
-    let id = sanitize_peer_id(&peer_id);
-    state.config.lock().unwrap().paired.contains_key(&id)
-}
-
-/// Eşleştirmeyi kaldırır.
-#[tauri::command]
-fn unpair(state: tauri::State<'_, AppState>, peer_id: String) {
-    let id = sanitize_peer_id(&peer_id);
+fn unpair(state: tauri::State<'_, AppState>, device_id: String) {
+    let id = sanitize_peer_id(&device_id);
     let mut cfg = state.config.lock().unwrap();
     if cfg.paired.remove(&id).is_some() {
         log::info!("eşleştirme kaldırıldı: {id}");
@@ -878,7 +1041,7 @@ fn stop_server(state: tauri::State<'_, AppState>) {
 fn start_player(state: tauri::State<'_, AppState>, args: StartPlayerArgs) -> Result<(), String> {
     let r = state
         .player
-        .start(args.port, &args.device_id, args.buffer_packets);
+        .start(args.port, &args.device_id, args.buffer_packets, Vec::new());
     if r.is_ok() {
         announce_port(&state, args.port, true);
     }
@@ -929,6 +1092,7 @@ fn peers(state: tauri::State<'_, AppState>) -> Vec<PeerDto> {
                     os: p.os,
                     listening: p.listening,
                     can_remote_start: p.control_port != 0,
+                    device_id: p.device_id,
                 })
                 .collect()
         })
@@ -993,11 +1157,22 @@ fn stats(state: tauri::State<'_, AppState>) -> StatsDto {
     state.server.fill(&mut s);
     state.player.fill(&mut s);
     s.feedback_loop = detect_feedback(&s);
+    // İki yarı da öldüyse (aygıt çıkarıldı, karşı taraf durdu) kulaklık modu
+    // fiilen bitmiştir; bayrak açık kalırsa arayüz boşuna "Durdur" gösterir.
+    if !s.server_running && !s.player_running {
+        state.headset_active.store(false, Ordering::Relaxed);
+    }
+    s.headset_active = state.headset_active.load(Ordering::Relaxed);
     s.started_by = state.started_by.lock().unwrap().clone();
+    if let Some(p) = state.started_peer.lock().unwrap().as_ref() {
+        s.linked_peer = Some(p.name.clone());
+        s.linked_paired_mic = p.paired_mic.clone();
+    }
     if let Some((code, left)) = state.pairing.visible_code() {
         s.pairing_code = Some(code);
         s.pairing_seconds = left;
     }
+    s.paired_ids = state.config.lock().unwrap().paired.keys().cloned().collect();
     s
 }
 
@@ -1032,16 +1207,31 @@ fn set_minimize_to_tray(state: tauri::State<'_, AppState>, enabled: bool) {
     c.save();
 }
 
-/// Kayıtlı ayarları döndürür.
+/// Kayıtlı ayarları döndürür — **eşleştirme anahtarları olmadan**.
+///
+/// Arayüzün anahtara ihtiyacı yok (yalnızca adları listeliyor). Anahtarı
+/// webview'e vermek, orada çalışan herhangi bir şeye eşleşmeyi devralma
+/// imkânı verirdi.
 #[tauri::command]
 fn get_config(state: tauri::State<'_, AppState>) -> Config {
-    state.config.lock().unwrap().clone()
+    let mut c = state.config.lock().unwrap().clone();
+    for p in c.paired.values_mut() {
+        p.key.clear();
+    }
+    c
 }
 
 /// Ayarları kaydeder. Arayüz her anlamlı değişiklikte çağırıyor;
 /// kullanıcı aynı seçimleri her açılışta tekrar yapmasın.
+///
+/// **Kimlik ve eşleşmeler arayüzden kabul edilmiyor.** Bunlar yalnızca Rust
+/// tarafında yazılıyor (eşleştirme kontrol kanalında, karşı taraf kodu
+/// girdiğinde gerçekleşiyor). Eskiden arayüz bütün config'i geri yazıyordu:
+/// kodu gösteren makinede anahtar Rust'ta kaydediliyor, ardından arayüzün
+/// eski kopyası bir sonraki ayar değişikliğinde onu **siliyordu** —
+/// eşleştirme bir an çalışıp kayboluyordu.
 #[tauri::command]
-fn set_config(app: tauri::AppHandle, state: tauri::State<'_, AppState>, config: Config) {
+fn set_config(app: tauri::AppHandle, state: tauri::State<'_, AppState>, mut config: Config) {
     state.minimize_to_tray.store(config.minimize_to_tray, Ordering::Relaxed);
     let enabled = config.remote_control;
     // Yazma kilit altında: iki `set_config` çakıştığında dosya yarı yazılmış
@@ -1049,6 +1239,8 @@ fn set_config(app: tauri::AppHandle, state: tauri::State<'_, AppState>, config: 
     let changed = {
         let mut guard = state.config.lock().unwrap();
         let changed = guard.remote_control != config.remote_control;
+        config.device_id = guard.device_id.clone();
+        config.paired = guard.paired.clone();
         *guard = config;
         guard.save();
         changed
@@ -1128,12 +1320,13 @@ pub fn run() {
             state
                 .minimize_to_tray
                 .store(cfg.minimize_to_tray, Ordering::Relaxed);
-            let (auto_listen, port, device, buffer, remote_control) = (
+            let (auto_listen, port, device, buffer, remote_control, device_id) = (
                 cfg.auto_listen,
                 cfg.player_port,
                 cfg.player_device.clone(),
                 cfg.player_buffer,
                 cfg.remote_control,
+                cfg.device_id.clone(),
             );
             *state.config.lock().unwrap() = cfg;
 
@@ -1143,7 +1336,7 @@ pub fn run() {
             let control_port = open_control_server(app.handle(), remote_control);
 
             // Keşfi hemen başlat: kullanıcı IP yazmak zorunda kalmasın.
-            match Discovery::start(port, control_port) {
+            match Discovery::start(port, control_port, device_id.clone()) {
                 Ok(d) => *state.discovery.lock().unwrap() = Some(d),
                 Err(e) => log::warn!("ağ keşfi başlatılamadı: {e} — IP elle girilebilir"),
             }
@@ -1154,7 +1347,7 @@ pub fn run() {
             // alabilir durumda olsun. Aygıt yoksa sessizce geç — kullanıcı
             // Oynatıcı sekmesinden elle başlatabilir.
             if auto_listen {
-                match state.player.start(port, &device, buffer) {
+                match state.player.start(port, &device, buffer, Vec::new()) {
                     Ok(()) => {
                         log::info!("oynatıcı otomatik başladı — port {port}");
                         announce(&state, true);
@@ -1196,8 +1389,8 @@ pub fn run() {
             start_headset,
             stop_headset,
             pair_with_peer,
+            pairing_code,
             cancel_pairing,
-            is_paired,
             unpair,
             get_config,
             set_config,

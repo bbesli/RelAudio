@@ -38,6 +38,13 @@ const NONCE_MEMORY: usize = 256;
 /// Arka arkaya kaç yanlış kod denenebilir. 6 hane = 10^6, ama sınırsız
 /// deneme buna rağmen dakikalar içinde kırılırdı.
 const MAX_CODE_ATTEMPTS: u32 = 5;
+/// Kodlardan bağımsız, dakika başına toplam yanlış deneme sınırı.
+///
+/// Kod başına sınır tek başına yetmiyor: arayüz eşleşmemiş bir eş seçiliyken
+/// kodu sürekli canlı tutuyor ve yanan kodun yerine yenisini üretiyor. O
+/// durumda saldırgan her yeni kodda 5 deneme daha alır — dakikada yüzlerce.
+/// Genel sınırla tahmin süresi aylara çıkıyor.
+const MAX_FAILURES_PER_MINUTE: usize = 10;
 
 /// Ekranda duran, henüz kullanılmamış kod.
 struct Pending {
@@ -51,6 +58,8 @@ struct Pending {
 pub struct Pairing {
     pending: Mutex<Option<Pending>>,
     seen: Mutex<VecDeque<(String, Instant)>>,
+    /// Son bir dakikadaki yanlış denemelerin zamanları.
+    failures: Mutex<VecDeque<Instant>>,
 }
 
 /// Kriptografik rastgele bayt. `getrandom` başarısız olursa (çok olası değil)
@@ -60,6 +69,24 @@ fn random_bytes<const N: usize>() -> Option<[u8; N]> {
     let mut buf = [0u8; N];
     getrandom::getrandom(&mut buf).ok()?;
     Some(buf)
+}
+
+/// Bu kurulum için kalıcı, rastgele cihaz kimliği.
+///
+/// Eskiden kimlik `{hostname}-{os}` idi ve iki ayrı şekilde bozuluyordu:
+/// aynı ada sahip iki makine **aynı** kimliği alıyordu, ve mDNS çakışma
+/// yüzünden örnek adını "... (2)" diye değiştirdiğinde ilan edilen ad ile
+/// hesaplanan kimlik ayrışıyordu. Sonuç: bir taraf anahtarı
+/// `burakbesli-windows` altına yazıyor, diğeri `burakbesli-windows2` diye
+/// arıyor ve eşleştirme sessizce hiç kurulmuyordu. Kimlik artık ada bağlı
+/// değil; bir kez üretilip ayar dosyasında saklanıyor.
+pub fn new_device_id() -> String {
+    match random_bytes::<16>() {
+        Some(b) => hex(&b),
+        // Rastgelelik alınamazsa boş dönüyoruz; çağıran taraf eşleştirmeyi
+        // reddediyor. Tahmin edilebilir bir kimlik üretmek daha kötü olurdu.
+        None => String::new(),
+    }
 }
 
 pub fn hex(bytes: &[u8]) -> String {
@@ -155,6 +182,17 @@ impl Pairing {
     /// Karşı tarafın gönderdiği kodu doğrular ve tutuyorsa yeni bir paylaşılan
     /// anahtar üretir. Kod tek kullanımlık: doğru kod tüketiliyor.
     pub fn redeem(&self, code: &str) -> Result<String, PairError> {
+        // Genel sınır, kod durumundan önce: sınır aşıldıysa doğru kod bile
+        // o dakika için kabul edilmiyor. Bu, saldırgana eşleştirmeyi bir
+        // dakikalığına engelleme imkânı veriyor — ama tersi, yani kodu
+        // tahminle kırabilmesi, çok daha kötü.
+        {
+            let mut f = self.failures.lock().unwrap();
+            f.retain(|at| at.elapsed() < Duration::from_secs(60));
+            if f.len() >= MAX_FAILURES_PER_MINUTE {
+                return Err(PairError::TooManyAttempts);
+            }
+        }
         let mut guard = self.pending.lock().unwrap();
         let Some(p) = guard.as_mut() else {
             return Err(PairError::NoCode);
@@ -169,6 +207,7 @@ impl Pairing {
         }
         if !constant_time_eq(p.code.as_bytes(), code.trim().as_bytes()) {
             p.attempts += 1;
+            self.failures.lock().unwrap().push_back(Instant::now());
             return Err(PairError::Wrong);
         }
         *guard = None;
@@ -293,6 +332,27 @@ mod tests {
         assert_eq!(p.redeem(&code), Err(PairError::NoCode));
     }
 
+    /// Arayüz yanan kodun yerine yenisini üretiyor. Genel sınır olmasa
+    /// saldırgan her yeni kodda 5 deneme daha alırdı.
+    #[test]
+    fn regenerating_codes_does_not_reset_the_global_guess_limit() {
+        let p = Pairing::default();
+        let mut wrong_total = 0;
+        for _ in 0..10 {
+            let code = p.new_code().unwrap();
+            let wrong = if code == "000000" { "111111" } else { "000000" };
+            match p.redeem(wrong) {
+                Err(PairError::Wrong) => wrong_total += 1,
+                Err(PairError::TooManyAttempts) => break,
+                other => panic!("beklenmeyen: {other:?}"),
+            }
+        }
+        assert_eq!(wrong_total, MAX_FAILURES_PER_MINUTE);
+        // Sınır aşıldı: yeni ve doğru kod bile bu dakika reddediliyor.
+        let code = p.new_code().unwrap();
+        assert_eq!(p.redeem(&code), Err(PairError::TooManyAttempts));
+    }
+
     #[test]
     fn pairing_twice_yields_different_keys() {
         let p = Pairing::default();
@@ -369,6 +429,18 @@ mod tests {
             p.verify(&key, &nonce, old, &mac, "remote", 59101),
             Err(PairError::Stale)
         );
+    }
+
+    /// Kimlik ada bağlı olsaydı aynı hostname'e sahip iki makine aynı
+    /// kimliği alırdı — gerçekte olan tam olarak buydu ve eşleştirmeyi
+    /// sessizce bozuyordu.
+    #[test]
+    fn device_ids_are_unique_and_name_independent() {
+        let a = new_device_id();
+        let b = new_device_id();
+        assert_eq!(a.len(), 32, "16 bayt = 32 hex karakter");
+        assert_ne!(a, b);
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
     }
 
     #[test]

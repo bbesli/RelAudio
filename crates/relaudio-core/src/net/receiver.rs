@@ -6,7 +6,7 @@
 //! yalnızca kısa bir kuyruk işlemi için tutuluyor.
 
 use relaudio_proto::{PacketHeader, HEADER_LEN, MAX_PACKET_LEN, PCM_PAYLOAD_LEN};
-use std::net::UdpSocket;
+use std::net::{IpAddr, UdpSocket};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -28,20 +28,43 @@ pub struct ReceiverStats {
     /// Çalınan sesin son tepe değeri (0–32767). Arayüzdeki seviye çubuğu için:
     /// "paket geliyor ama ses sessiz" durumunu paket sayacı gösteremiyor.
     pub peak: AtomicU64,
+    /// Oturumun karşı ucundan gelmediği için atılan paketler. Sıfırdan
+    /// büyükse ya biri araya girmeye çalışıyor ya da karşı taraf beklenenden
+    /// farklı bir arayüzden gönderiyor — iki durum da görünür olmalı.
+    pub foreign: AtomicU64,
 }
 
 /// `port`'u dinler ve `device_id` aygıtında çalar.
 /// `target_packets` jitter buffer hedefi (paket sayısı; 1 paket = 5 ms).
+///
+/// `allow_from` boş değilse yalnızca o adreslerden gelen paketler kabul
+/// ediliyor. Birden fazla adres olabilir: aynı ağa hem kablolu hem Wi-Fi bağlı
+/// bir eşin paketleri ilan ettiği adreslerin herhangi birinden gelebilir.
+///
+/// Bu kilit olmadan ağdaki herkes bu porta paket atabiliyor ve yeni bir SSRC
+/// görülünce oturum ona devrediliyordu. Kulaklık modunda alınan ses sanal
+/// kabloya — yani toplantı uygulamasının **mikrofonuna** — yazıldığı için bu,
+/// yabancı birinin toplantıda senin yerine konuşabilmesi demekti. Eşleştirme
+/// yalnızca kontrol kanalını koruyordu, ses yolunu değil.
+///
+/// Sınır: UDP kaynak adresi yerel ağda sahtelenebilir. Bu kilit, ağa paket
+/// atabilen herkese karşı korur; kaynak adres sahteleyebilen birine karşı
+/// paket başına imza gerekir (yok).
 pub fn receive_loop(
     port: u16,
     device_id: &str,
     target_packets: usize,
+    allow_from: Vec<IpAddr>,
     stop: Stopper,
     stats: Arc<ReceiverStats>,
 ) -> Result<()> {
     let sock = UdpSocket::bind(("0.0.0.0", port))?;
     sock.set_read_timeout(Some(Duration::from_millis(200)))?;
-    log::info!("dinleniyor: 0.0.0.0:{port}");
+    if allow_from.is_empty() {
+        log::info!("dinleniyor: 0.0.0.0:{port}");
+    } else {
+        log::info!("dinleniyor: 0.0.0.0:{port} — yalnızca {allow_from:?} kabul ediliyor");
+    }
 
     let mut out = audio::open_playback(device_id)?;
     let jitter = Arc::new(Mutex::new(JitterBuffer::new(target_packets)));
@@ -56,10 +79,26 @@ pub fn receive_loop(
             let mut buf = [0u8; MAX_PACKET_LEN];
             let mut current_ssrc: Option<u32> = None;
             while !net_stop.stopped() {
-                let n = match sock.recv(&mut buf) {
-                    Ok(n) => n,
+                let (n, src) = match sock.recv_from(&mut buf) {
+                    Ok(v) => v,
                     Err(_) => continue, // zaman aşımı; stop bayrağını kontrol et
                 };
+                // Kaynak denetimi ayrıştırmadan ÖNCE: yabancı paketin baytları
+                // hiçbir koda dokunmasın.
+                if !allow_from.is_empty() {
+                    if !allow_from.contains(&src.ip()) {
+                        let n_foreign = net_stats.foreign.fetch_add(1, Ordering::Relaxed);
+                        // Her paketi loglamak diski doldururdu (saniyede 200
+                        // paket); ilkini ve sonra her 1000'de birini yaz.
+                        if n_foreign % 1000 == 0 {
+                            log::warn!(
+                                "oturum dışı kaynaktan paket atıldı: {src} (beklenen {allow_from:?}, toplam {})",
+                                n_foreign + 1
+                            );
+                        }
+                        continue;
+                    }
+                }
                 let header = match PacketHeader::parse(&buf[..n]) {
                     Ok(h) => h,
                     Err(e) => {
