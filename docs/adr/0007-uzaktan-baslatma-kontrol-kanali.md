@@ -224,3 +224,68 @@ yalnızca kullanılan adreslere daraltıldı, ayar dosyası Linux'ta 0600 ile ve
 geçici dosya + yerine taşıma ile yazılıyor, ağdan gelen adlar Unicode yön
 denetim karakterlerinden arındırılıyor (U+202E ile bir ad başka bir cihazın
 adı gibi okunabiliyordu).
+
+## Revizyon — 0.2.1 (2026-11-02)
+
+0.2.0 iki Windows makinesinde denendiğinde "Eşleş"e basınca iki ekran da
+dondu ve eşleşme tamamlanmadı.
+
+### Kendi kendini kilitleme
+
+Eşleştirme işleyicisi ayar kilidini tutarken `own_id`'yi çağırıyordu; 0.2.0'da
+`own_id` aynı kilidi alıyordu. `std::sync::Mutex` yeniden girilebilir değil:
+kontrol iş parçacığı sonsuza kadar kilitlendi. Arayüzün 500 ms'de bir
+çağırdığı `stats` da aynı kilidi beklediği için kodu gösteren makinenin
+penceresi tamamen dondu; kodu yazan makine 12 sn bekleyip zaman aşımı aldı.
+Log'da "eşleştirildi" satırından sonra tek satır yoktu.
+
+Karar: kurulum kimliği açılıştan sonra değişmediği için kilidin arkasında
+değil, bir kez yazılan bir alanda (`OnceLock`). İşleyici kilidi bıraktıktan
+sonra cevabı kuruyor. Gerçek `handle_control`'ü zaman aşımıyla çalıştıran
+regresyon testi eklendi; önceki uçtan uca test kendi sahte işleyicisini
+kullandığı için bunu yakalayamamıştı.
+
+### Ana iş parçacığı
+
+Kilit bekleyen, ses aygıtı sayan ya da diske yazan komutların hepsi
+`#[tauri::command(async)]` oldu. `stats` oturum başlarken tutulan kilitleri
+bekliyordu ve her Başlat/Durdur'da pencere takılıyordu.
+
+### Windows'ta engellemesiz soket mirası
+
+Kontrol dinleyicisi engellemesiz. Windows'ta `accept()`'in döndürdüğü soket bu
+modu miras alıyor (Linux'ta almıyor); istek baytları gelmeden okumaya kalkan
+işleyici hemen düşüyor ve karşı taraf aralıklı "cevap vermedi" alıyordu.
+Kabul edilen soket açıkça engelleyen moda alınıyor; geciken istemciyle
+yeniden üretip düzeltmeyi doğrulayan test var.
+
+### Tek taraflı eşleşme
+
+Eşleşme bir tarafta kalabiliyor (cevap yolda kaybolur — 0.2.0'daki kilitlenme
+tam olarak bunu yaptı —, biri Ayarlar'dan kaldırır, iki taraf aynı anda
+eşleşip farklı anahtar yazar). O zaman eşleşmiş sanan taraf kod göstermiyor,
+öbürü kod bekliyor ve kullanıcı çıkmazda kalıyordu. Yeni imzalı `Verify`
+isteği: eşleşmiş sanılan eş seçiliyken 10 sn'de bir gönderiliyor, karşı taraf
+tanımıyorsa bayat anahtar siliniyor ve kart kendiliğinden çıkıyor. İmza rol
+alanına `"verify"` yazıyor; yakalanan bir doğrulama başlatma isteği olarak
+kullanılamıyor. Ulaşılamamak anahtar silmek için sebep sayılmıyor.
+
+Eşleştirme cevabındaki kimlik artık ilan edilen kimlikle karşılaştırılıyor;
+farklıysa anahtar hiç bulunamayacak bir ad altında kalırdı.
+
+İki uygulama durumunu gerçek TCP üzerinden konuşturan testler eklendi:
+eşleşme, tek taraflı kalmadan kurtulma, aynı anda iki taraftan eşleşme.
+
+### Diğer
+
+- Kontrol kanalı hataları ayrıştırıldı: "ulaşılamadı" (güvenlik duvarı ya da
+  makine kapalı) ve "cevap vermedi"; ikisi de 10 dilde açık bir mesajla.
+  Eşleştirme cevabı 12 değil 4 sn bekleniyor.
+- Durdurma, eşin ilan ettiği her adresten kabul ediliyor (kablolu + Wi-Fi).
+- Aynı anda Başlat: "zaten oturum var" dalı istenen rolü de denetliyor.
+- Tepsideki "Tümünü durdur" oturum kilidini alıyor ve arka planda çalışıyor.
+
+Bilinen, bilerek bırakılan: başlatma isteğinin ön denetimleri (izin, meşgul)
+oturum kilidi dışında yapılıyor; çok dar bir zaman penceresinde yerel bir
+tıklamayla yarışabilir. Kilidin içine almak iç içe kilit riski taşıdığı için
+ayrı bir değişikliğe bırakıldı.

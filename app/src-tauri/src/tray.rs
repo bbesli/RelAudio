@@ -50,18 +50,21 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => show_main(app),
             "stop_all" => {
-                let state = app.state::<AppState>();
-                state.headset_active.store(false, Ordering::Relaxed);
-                state.server.stop();
-                state.player.stop();
-                // Karşı taraf da dursun — yalnızca bizim durmamız onu yayında
-                // bırakıyordu — ve uzaktan başlatma izi silinsin, yoksa
-                // arayüzdeki "kulaklık modunu X başlattı" bandı artık var
-                // olmayan bir oturumu göstermeye devam ediyor.
-                crate::notify_peer_stopped_detached(app);
-                *state.started_by.lock().unwrap() = None;
-                // Eşler bu makineyi hâlâ "dinliyor" görüyordu; ilanı düzelt.
-                announce(&state, false);
+                // Arka planda: durdurma ses iş parçacıklarını bekliyor ve karşı
+                // tarafa ağdan haber veriyor; menü olay döngüsünde çalışıyor ve
+                // orada beklemek pencereyi donduruyordu. Oturum kilidi de
+                // alınıyor (bkz. `stop_everything`): almazsak o anda süren bir
+                // uzaktan başlatma, durdurmanın ardından yayını geri açabiliyordu.
+                let app = app.clone();
+                let _ = std::thread::Builder::new()
+                    .name("relaudio-stop-all".into())
+                    .spawn(move || {
+                        let state = app.state::<AppState>();
+                        // Karşı taraf da dursun — haber `started_by` silinmeden
+                        // önce gitmeli, adres oradan okunuyor.
+                        crate::notify_peer_stopped(&state);
+                        crate::stop_everything(&state);
+                    });
             }
             "quit" => {
                 let state = app.state::<AppState>();

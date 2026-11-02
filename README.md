@@ -518,7 +518,8 @@ The panel tells you which of these it was.
 
 | What it says | What to do |
 |---|---|
-| not paired / not paired with you | Pair again (Step 4). If one side was removed in Settings, the other side's stale pairing is cleared automatically the next time you press start. |
+| not paired / not paired with you | Pair again (Step 4). If a pairing survived on one side only (one side removed it in Settings, or the reply was lost), the side that still has it notices within about 10 seconds while the other machine is selected, and the pairing card comes back by itself. |
+| accepted the connection but didn't answer | Both machines must run the same RelAudio version. Update both, then try again. |
 | the other machine shows **Start by hand** | It runs an older RelAudio (before 0.2.0). Update it — older versions cannot pair. |
 | typed an address instead of picking from the list | Remote start needs the machine picked from the list, because the pairing is looked up by the machine's identity, not its address. |
 | does not accept remote start | On the other machine: Settings → **Allow remote start** is switched off. Turn it back on. |

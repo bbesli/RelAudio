@@ -126,6 +126,11 @@ export interface HeadsetStartResult {
 export const pairWithPeer = (peer_id: string, code: string) =>
   invoke<string>("pair_with_peer", { peerId: peer_id, code });
 
+/** Eşleşme karşı tarafta da geçerli mi? Değilse bizdeki bayat anahtarı siler.
+ *  "ok" | "dropped" | "unpaired" | "unknown" (ulaşılamadı / eski sürüm). */
+export const verifyPairing = (peer_id: string) =>
+  invoke<"ok" | "dropped" | "unpaired" | "unknown">("verify_pairing", { peerId: peer_id });
+
 /** Bu makinenin eşleştirme kodu — karşı makinede yazılacak olan. */
 export const getPairingCode = () => invoke<string | null>("pairing_code");
 export const cancelPairing = () => invoke<void>("cancel_pairing");

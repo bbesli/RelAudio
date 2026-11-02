@@ -14,7 +14,7 @@ use relaudio_core::audio::{self, DeviceKind, HeadsetRole};
 use relaudio_core::net::{
     self as net, ControlAuth, ControlReply, ControlRequest, ControlServer, Discovery, Pairing,
 };
-use relaudio_core::{Config, PairedPeer};
+use relaudio_core::{Config, Error as CoreError, PairedPeer};
 use session::{PlayerSession, ServerSession};
 use std::sync::Mutex;
 
@@ -28,6 +28,14 @@ const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(15
 /// sayımı yavaş olabiliyor. Komut `async` olduğu için bu süre arayüzü
 /// dondurmuyor, yalnızca düğme "meşgul" kalıyor.
 const REPLY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
+/// Eşleştirme cevabını ne kadar bekleyeceğiz. Eşleştirme ses aygıtı açmıyor,
+/// karşı taraf milisaniyeler içinde cevap veriyor; başlatmanın 12 sn'si burada
+/// kullanıcıyı boşuna bekletiyordu.
+const PAIR_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
+/// Eşleşme doğrulamasının imzasında rol alanına yazılan değer. Gerçek bir
+/// rol değil: imzalı bir doğrulama, imzalı bir "başlat" isteği yerine
+/// kullanılamasın diye ayrı.
+const VERIFY_ROLE: &str = "verify";
 /// Uzaktan başlatılan bir oturumda bu kadar süre hiç paket gelmezse, başlatan
 /// makine gitmiş demektir; akış kapatılır.
 const ORPHAN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
@@ -68,6 +76,15 @@ pub struct AppState {
     /// "Durdur" gösteriyordu; tersine, uzaktan başlatılan makinede de durum
     /// yalnızca tahmindi. Artık açıkça tutuluyor.
     pub headset_active: AtomicBool,
+    /// Bu kurulumun kimliği. Açılışta bir kez yazılıyor ve bir daha
+    /// değişmiyor; o yüzden ayar kilidinin arkasında değil.
+    ///
+    /// Eskiden `own_id` her çağrıda ayar kilidini alıyordu. Eşleştirme
+    /// işleyicisi o kilidi zaten elinde tutarken `own_id`'yi çağırınca
+    /// iş parçacığı kendini sonsuza kadar kilitledi: kodu gösteren makinenin
+    /// arayüzü tamamen dondu (her 500 ms'de istatistik de o kilidi bekliyor),
+    /// kodu yazan makine 12 sn bekleyip zaman aşımı hatası aldı.
+    pub device_id: std::sync::OnceLock<String>,
 }
 
 /// Bu makinede kulaklık modunu uzaktan başlatan taraf.
@@ -86,6 +103,12 @@ pub struct StartedPeer {
     /// üstlendiyse). Arayüz yeniden yüklense de talimat kaybolmasın diye
     /// burada tutuluyor, arayüzün belleğinde değil.
     pub paired_mic: Option<String>,
+    /// Eşin bilinen bütün adresleri. Durdurma isteği bunların herhangi
+    /// birinden gelebilir: kablolu + Wi-Fi bağlı bir makine, mDNS'in seçtiği
+    /// adresten değil, işletim sisteminin yönlendirdiği adresten bağlanıyor.
+    /// Yalnızca tek adres karşılaştırılınca durdurma sessizce yok sayılıyor
+    /// ve bu makine yayına devam ediyordu.
+    pub addresses: Vec<std::net::IpAddr>,
 }
 
 impl Default for AppState {
@@ -103,6 +126,7 @@ impl Default for AppState {
             pairing: Pairing::default(),
             session_lock: Mutex::new(()),
             headset_active: AtomicBool::new(false),
+            device_id: std::sync::OnceLock::new(),
         }
     }
 }
@@ -215,7 +239,13 @@ pub struct StartPlayerArgs {
     pub buffer_packets: usize,
 }
 
-#[tauri::command]
+// Komutların neredeyse hepsi `async`. İşaretsiz bir `#[tauri::command]` ana
+// (olay döngüsü) iş parçacığında çalışıyor; orada bir kilit beklemek, ses
+// aygıtı saymak ya da diske yazmak pencereyi donduruyor. Arayüz `stats` ve
+// `peers`'ı 500 ms'de bir çağırıyor ve oturum başlarken tutulan kilitleri
+// bekliyorlardı: her Başlat/Durdur'da pencere takılıyordu. Ana iş parçacığında
+// yalnızca anlık olanlar ve tepsi menüsüne dokunan `set_tray_labels` kaldı.
+#[tauri::command(async)]
 fn list_devices() -> Result<Vec<DeviceDto>, String> {
     audio::list_devices()
         .map(|v| v.into_iter().map(Into::into).collect())
@@ -285,7 +315,7 @@ fn saved_headset_devices(cfg: &Config, role: HeadsetRole) -> (&str, &str) {
 /// Arayüz için plan. Kayıtlı seçimler argüman olarak geliyor, diskten
 /// okunmuyor: kullanıcı bir aygıt seçtiğinde `set_config`'in tamamlanmasını
 /// beklemeden doğru planı görmeli.
-#[tauri::command]
+#[tauri::command(async)]
 fn headset_plan(
     role: String,
     saved_play: String,
@@ -338,8 +368,11 @@ fn sanitize_peer_id(raw: &str) -> String {
 /// kimlikleri de aynı oluyordu; üstelik mDNS çakışmada örnek adını
 /// "... (2)" diye değiştirdiği için ilan edilen ad ile hesaplanan kimlik
 /// ayrışıyordu. Eşleştirme bu yüzden sessizce hiç kurulmuyordu.
+///
+/// **Kilit almıyor** — ve almamalı: ayar kilidini tutan kod (eşleştirme
+/// işleyicisi gibi) bunu çağırabiliyor, `Mutex` de yeniden girilebilir değil.
 pub fn own_id(state: &AppState) -> String {
-    state.config.lock().unwrap().device_id.clone()
+    state.device_id.get().cloned().unwrap_or_default()
 }
 
 /// Eşin eşleştirme kimliği. Boşsa eş eski bir sürüm ya da henüz TXT
@@ -461,24 +494,21 @@ fn stop_headset_locally(state: &AppState) {
     announce(state, false);
 }
 
-/// Bağlı olduğumuz tarafa "ben durdum" der.
+/// Tepsideki "Tümünü durdur": kulaklık oturumu dahil her şeyi durdurur.
 ///
-/// Durdurma iki yönde de yayılmalı: kullanıcı hangi makinede Durdur'a basarsa
-/// bassın diğeri de dursun. Aksi hâlde uzaktan başlatılan makinede durdurunca
-/// karşı taraf mikrofonu göndermeye devam ediyordu ve bunu ancak gözcü 12 sn
-/// sonra fark ediyordu.
-///
-/// Kısa zaman aşımı: karşı taraf kapanmış olabilir, kullanıcıyı bekletmeyelim.
-/// [`notify_peer_stopped`]'un arka planda çalışan hâli.
-///
-/// Tepsi menüsü olay döngüsü thread'inde çalışıyor; orada 700 ms'lik bir TCP
-/// denemesi menüyü ve pencereyi dondurur.
-pub fn notify_peer_stopped_detached<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
-    let target = take_link_target(&app.state::<AppState>());
-    let Some((name, addr)) = target else { return };
-    let _ = std::thread::Builder::new()
-        .name("relaudio-notify-stop".into())
-        .spawn(move || send_stop(&name, addr));
+/// [`stop_headset_locally`]'den farkı: otomatik dinlemeye geri **dönmüyor** —
+/// kullanıcı "hepsini durdur" dedi. Oturum kilidini alıyor; eskiden tepsi
+/// kilidi atlıyordu ve o anda süren bir uzaktan başlatma, durdurmanın ardından
+/// yayını geri açabiliyordu.
+pub fn stop_everything(state: &AppState) {
+    let _serialized = state.session_lock.lock().unwrap();
+    state.headset_active.store(false, Ordering::Relaxed);
+    state.server.stop();
+    state.player.stop();
+    *state.started_by.lock().unwrap() = None;
+    *state.started_peer.lock().unwrap() = None;
+    // Eşler bu makineyi hâlâ "dinliyor" görüyordu; ilanı düzelt.
+    announce(state, false);
 }
 
 /// Bağlı olduğumuz tarafın adı ve kontrol adresi; okurken `started_peer`
@@ -508,10 +538,39 @@ fn send_stop(name: &str, addr: std::net::SocketAddr) {
     }
 }
 
-fn notify_peer_stopped(state: &AppState) {
+/// Bağlı olduğumuz tarafa "ben durdum" der.
+///
+/// Durdurma iki yönde de yayılmalı: kullanıcı hangi makinede Durdur'a basarsa
+/// bassın diğeri de dursun. Aksi hâlde uzaktan başlatılan makinede durdurunca
+/// karşı taraf mikrofonu göndermeye devam ediyordu ve bunu ancak gözcü 12 sn
+/// sonra fark ediyordu. Kısa zaman aşımı: karşı taraf kapanmış olabilir.
+/// Ağ beklediği için ana iş parçacığından çağrılmamalı.
+pub fn notify_peer_stopped(state: &AppState) {
     if let Some((name, addr)) = take_link_target(state) {
         send_stop(&name, addr);
     }
+}
+
+/// `host` ile `from` aynı makine mi? Aynı adres ya da keşfedilen bir eşin
+/// ilan ettiği iki ayrı adres olabilirler (kablolu + Wi-Fi).
+///
+/// Keşif kilidi kendi ifadesinde alınıp bırakılıyor: çağıran başka bir kilit
+/// tutuyor olabilir, burada kilit sırası tersine dönmesin.
+fn same_peer(state: &AppState, host: &str, from: std::net::IpAddr) -> bool {
+    if host == from.to_string() {
+        return true;
+    }
+    let peers = state
+        .discovery
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|d| d.peers())
+        .unwrap_or_default();
+    let from_s = from.to_string();
+    peers
+        .iter()
+        .any(|p| p.addresses.iter().any(|a| a == host) && p.addresses.contains(&from_s))
 }
 
 /// Uzaktan gelen kontrol isteğini işler.
@@ -522,6 +581,19 @@ fn handle_control(state: &AppState, req: &ControlRequest, from: std::net::IpAddr
     let me = net::device_name();
     match req {
         ControlRequest::Ping => ControlReply::ok(me, None),
+
+        ControlRequest::Verify { auth } => {
+            // Anahtar kopyalanıp kilit hemen bırakılıyor; doğrulama sırasında
+            // ayar kilidi tutulmuyor.
+            let key = state.config.lock().unwrap().paired.get(&auth.id).map(|p| p.key.clone());
+            let Some(key) = key else {
+                return ControlReply::failed(me, "needs_pairing", "not paired with this machine");
+            };
+            match state.pairing.verify(&key, &auth.nonce, auth.ts, &auth.mac, VERIFY_ROLE, 0) {
+                Ok(()) => ControlReply::ok(me, None),
+                Err(e) => ControlReply::failed(me, e.code(), e.message()),
+            }
+        }
 
         ControlRequest::StartHeadset { role, audio_port, name, auth } => {
             let cfg_now = state.config.lock().unwrap().clone();
@@ -583,11 +655,21 @@ fn handle_control(state: &AppState, req: &ControlRequest, from: std::net::IpAddr
                         format!("the other machine is already in a session with {}", o.name),
                     );
                 }
-                // Karşı taraf zaten *bize* yayın yapıyorsa meşgul değil:
-                // iki makinede aynı anda düğmeye basılmış demektir.
-                None if state.player.packets().is_some()
+                // Zaten *bu eşle* ve *istenen rolde* bir kulaklık oturumundaysak
+                // meşgul değiliz: iki makinede aynı anda düğmeye basılmış
+                // demektir ve istenen sonuç kurulmuş.
+                //
+                // İki koşul da şart. Rol denetlenmezse iki taraf da "kulaklık
+                // burada" seçip aynı anda basınca ikisi de "tamam" alıyor ve
+                // hiçbir taraf sanal kabloya yazmıyordu. Adres tek tek
+                // karşılaştırılırsa kablolu + Wi-Fi bağlı bir eş, mDNS'in
+                // seçtiği adresten başka bir adresten bağlanınca "meşgul"
+                // alıyordu.
+                None if state.headset_active.load(Ordering::Relaxed)
+                    && state.config.lock().unwrap().headset_role == role.as_str()
                     && state.server.target().is_some_and(|t| {
-                        t.rsplit_once(':').map(|(h, _)| h) == Some(&from.to_string()[..])
+                        let host = t.rsplit_once(':').map_or(t.as_str(), |(h, _)| h);
+                        same_peer(state, host, from)
                     }) =>
                 {
                     log::info!("uzaktan başlatma isteği: zaten {from} ile oturum var, korunuyor");
@@ -651,12 +733,17 @@ fn handle_control(state: &AppState, req: &ControlRequest, from: std::net::IpAddr
                     let who = sanitize_peer_name(name);
                     let peer_id = sanitize_peer_id(id);
                     log::info!("eşleştirildi: {who} [{peer_id}] ({from})");
-                    let mut cfg = state.config.lock().unwrap();
-                    cfg.paired.insert(
-                        peer_id,
-                        PairedPeer { key: key.clone(), name: who },
-                    );
-                    cfg.save();
+                    // Kilit yalnızca bu blokta. Cevap kilit bırakıldıktan
+                    // sonra kuruluyor: içinde başka bir kilit alan bir çağrı
+                    // olursa kendi kendini kilitlemesin.
+                    {
+                        let mut cfg = state.config.lock().unwrap();
+                        cfg.paired.insert(
+                            peer_id,
+                            PairedPeer { key: key.clone(), name: who },
+                        );
+                        cfg.save();
+                    }
                     ControlReply::paired(me, own_id(state), key)
                 }
                 Err(e) => {
@@ -674,7 +761,9 @@ fn handle_control(state: &AppState, req: &ControlRequest, from: std::net::IpAddr
             let origin = state.started_by.lock().unwrap().clone();
             let linked = state.started_peer.lock().unwrap().clone();
             let started_us = origin.as_ref().is_some_and(|o| o.address == from_s);
-            let we_started_them = linked.as_ref().is_some_and(|p| p.control.ip().to_string() == from_s);
+            let we_started_them = linked
+                .as_ref()
+                .is_some_and(|p| p.control.ip() == from || p.addresses.contains(&from));
 
             if started_us || we_started_them {
                 let who = origin.map(|o| o.name).or(linked.map(|p| p.name)).unwrap_or_default();
@@ -875,6 +964,13 @@ fn start_headset(
                     name: sanitize_peer_name(&reply.name),
                     control: addr,
                     paired_mic: if role == HeadsetRole::Local { their_mic } else { None },
+                    addresses: {
+                        let mut a = peer_addrs.clone();
+                        if !a.contains(&addr.ip()) {
+                            a.push(addr.ip());
+                        }
+                        a
+                    },
                 });
                 log::info!("karşı taraf uzaktan başlatıldı: {control_addr}");
             }
@@ -903,10 +999,19 @@ fn start_headset(
                             log::warn!("karşı taraf eşleşmeyi tanımadı — bayat anahtar silindi: {id}");
                             cfg.save();
                         }
-                    }
+                    } // ayar kilidi burada bırakıldı — aşağıdaki durdurma onu da alıyor
+                    // Bayat anahtarla açılan yarım oturumu bırakmıyoruz: eşleşme
+                    // yokken yayın açık kalırsa arayüz eşleştirme kartını
+                    // göstermiyor (oturum sürüyor sayılıyor) ve kullanıcı önce
+                    // Durdur'a basması gerektiğini bilemiyordu.
+                    stop_headset_locally(&state);
+                    out.needs_pairing = true;
                 }
             }
-            Err(e) => out.remote_error = Some(e.to_string()),
+            Err(e) => {
+                out.remote_error_code = Some(control_error_code(&e).into());
+                out.remote_error = Some(e.to_string());
+            }
         },
     }
     if let Some(e) = &out.remote_error {
@@ -915,8 +1020,19 @@ fn start_headset(
     Ok(out)
 }
 
-/// Karşı makinenin ekranındaki kodu girip eşleşir.
+/// Kontrol kanalı hatasını arayüzün çevirebileceği koda indirger.
 ///
+/// Ham metin ("os error 10060") kullanıcıya bir şey söylemiyordu; "ulaşılamadı"
+/// güvenlik duvarına, "cevap vermedi" karşı taraftaki bir soruna işaret ediyor.
+fn control_error_code(e: &CoreError) -> &'static str {
+    match e {
+        CoreError::Unreachable(_) => "unreachable",
+        CoreError::NoReply(_) => "no_reply",
+        _ => "pair_bad_reply",
+    }
+}
+
+/// Karşı makinenin ekranındaki kodu girip eşleşir.///
 /// İstek kodu **yazdığımız** makineden, kodu **gösteren** makineye gidiyor.
 /// Dönen anahtar iki tarafta da diske yazılıyor; bir daha sorulmuyor.
 #[tauri::command(async)]
@@ -925,13 +1041,23 @@ fn pair_with_peer(
     peer_id: String,
     code: String,
 ) -> Result<String, String> {
-    let peer = state
+    let peer = find_peer(&state, &peer_id).ok_or_else(|| "peer_gone".to_string())?;
+    pair_with(&state, &peer, &code)
+}
+
+/// Keşfedilen eşi örnek adıyla bulur. Keşif kilidi kendi ifadesinde bırakılıyor.
+fn find_peer(state: &AppState, peer_id: &str) -> Option<net::Peer> {
+    state
         .discovery
         .lock()
         .unwrap()
         .as_ref()
         .and_then(|d| d.peers().into_iter().find(|p| p.id == peer_id))
-        .ok_or_else(|| "peer_gone".to_string())?;
+}
+
+/// Eşleştirmenin kendisi — keşiften bağımsız, iki taraflı testte doğrudan
+/// çağrılabilsin diye ayrı.
+fn pair_with(state: &AppState, peer: &net::Peer, code: &str) -> Result<String, String> {
     if peer.control_port == 0 {
         return Err("no_control".into());
     }
@@ -941,11 +1067,13 @@ fn pair_with_peer(
     );
     let req = ControlRequest::Pair {
         code: code.trim().to_string(),
-        id: own_id(&state),
+        id: own_id(state),
         name: net::device_name(),
     };
-    let reply = net::control_send(addr, &req, CONNECT_TIMEOUT, REPLY_TIMEOUT)
-        .map_err(|e| format!("unreachable: {e}"))?;
+    let reply = net::control_send(addr, &req, CONNECT_TIMEOUT, PAIR_TIMEOUT).map_err(|e| {
+        log::warn!("eşleştirme isteği gönderilemedi: {e}");
+        control_error_code(&e).to_string()
+    })?;
     if !reply.ok {
         return Err(reply.code.unwrap_or_else(|| "pair_wrong".into()));
     }
@@ -953,7 +1081,13 @@ fn pair_with_peer(
         return Err("pair_bad_reply".into());
     };
     let their_id = sanitize_peer_id(&their_id);
-    if their_id == "?" || their_id.is_empty() {
+    // Cevaptaki kimlik, bağlandığımız eşin mDNS'te ilan ettiğiyle aynı
+    // olmalı. Anahtar bu kimlik altında saklanıyor ve sonraki her arama
+    // ilan edilen kimlikle yapılıyor; farklıysa eşleşme hiç bulunamayan bir
+    // anahtar altında kalırdı. (Farklı olması aynı zamanda araya giren
+    // birinin işareti.)
+    if their_id == "?" || their_id.is_empty() || Some(&their_id) != peer_key_id(peer).as_ref() {
+        log::warn!("eşleştirme cevabındaki kimlik ilan edilenle uyuşmuyor: {their_id}");
         return Err("pair_bad_reply".into());
     }
     let name = sanitize_peer_name(&reply.name);
@@ -968,6 +1102,56 @@ fn pair_with_peer(
     // deneyebilirdi.
     state.pairing.clear_code();
     Ok(name)
+}
+
+/// Bu eşle eşleşmemiz karşı tarafta da geçerli mi? Değilse bizdeki bayat
+/// anahtarı siler.
+///
+/// Dönen değer: `"ok"` (iki taraf da tanıyor), `"dropped"` (karşı taraf bizi
+/// tanımıyordu, anahtar silindi — arayüz eşleştirme kartını gösterecek),
+/// `"unpaired"` (bizde zaten anahtar yok), `"unknown"` (karşıya ulaşılamadı
+/// ya da eski bir sürüm; anahtara dokunulmadı).
+///
+/// Ulaşılamamak anahtarı silmek için sebep değil: karşı makine kapalı olabilir,
+/// açıldığında eşleşme çalışmaya devam etmeli.
+#[tauri::command(async)]
+fn verify_pairing(state: tauri::State<'_, AppState>, peer_id: String) -> &'static str {
+    match find_peer(&state, &peer_id) {
+        Some(peer) => verify_with(&state, &peer),
+        None => "unknown",
+    }
+}
+
+/// Doğrulamanın kendisi — keşiften bağımsız, testte doğrudan çağrılabilsin.
+fn verify_with(state: &AppState, peer: &net::Peer) -> &'static str {
+    let Some(id) = peer_key_id(peer) else { return "unknown" };
+    if peer.control_port == 0 {
+        return "unknown";
+    }
+    let key = state.config.lock().unwrap().paired.get(&id).map(|p| p.key.clone());
+    let Some(key) = key else { return "unpaired" };
+
+    let Ok(ip) = peer.address.parse::<std::net::IpAddr>() else { return "unknown" };
+    let addr = std::net::SocketAddr::new(ip, peer.control_port);
+    let Some((nonce, ts, mac)) = net::sign_request(&key, VERIFY_ROLE, 0) else { return "unknown" };
+    let req = ControlRequest::Verify {
+        auth: ControlAuth { id: own_id(state), nonce, ts, mac },
+    };
+    match net::control_send(addr, &req, CONNECT_TIMEOUT, PAIR_TIMEOUT) {
+        Ok(r) if r.ok => "ok",
+        Ok(r) if matches!(r.code.as_deref(), Some("needs_pairing" | "auth_bad")) => {
+            let mut cfg = state.config.lock().unwrap();
+            if cfg.paired.remove(&id).is_some() {
+                log::warn!("eşleşme karşı tarafta yok — bayat anahtar silindi: {} [{id}]", peer.name);
+                cfg.save();
+            }
+            "dropped"
+        }
+        // Eski sürüm `Verify`'ı tanımıyor ("malformed"), saat sapması vb.:
+        // eşleşmenin bozuk olduğuna dair kanıt değil.
+        Ok(_) => "unknown",
+        Err(_) => "unknown",
+    }
 }
 
 /// Ekranda gösterilecek kod. Varsa mevcut olanı döndürüyor, yoksa üretiyor.
@@ -985,19 +1169,19 @@ fn ensure_code(state: &AppState) -> Option<String> {
 }
 
 /// Bu makinenin eşleştirme kodu — karşı tarafa yazılacak olan.
-#[tauri::command]
+#[tauri::command(async)]
 fn pairing_code(state: tauri::State<'_, AppState>) -> Option<String> {
     ensure_code(&state)
 }
 
 /// Ekranda duran kodu iptal eder.
-#[tauri::command]
+#[tauri::command(async)]
 fn cancel_pairing(state: tauri::State<'_, AppState>) {
     state.pairing.clear_code();
 }
 
 /// Eşleştirmeyi kaldırır. Argüman eşin **kurulum kimliği**.
-#[tauri::command]
+#[tauri::command(async)]
 fn unpair(state: tauri::State<'_, AppState>, device_id: String) {
     let id = sanitize_peer_id(&device_id);
     let mut cfg = state.config.lock().unwrap();
@@ -1074,7 +1258,7 @@ fn announce_port(state: &AppState, port: u16, listening: bool) {
 }
 
 /// Ağda bulunan diğer RelAudio örnekleri.
-#[tauri::command]
+#[tauri::command(async)]
 fn peers(state: tauri::State<'_, AppState>) -> Vec<PeerDto> {
     state
         .discovery
@@ -1110,7 +1294,7 @@ pub struct MicHint {
 
 /// "Uzaktaki mikrofonu bu makinede mikrofon olarak kullan" senaryosunda
 /// kullanıcıya ne seçeceğini söylemek için.
-#[tauri::command]
+#[tauri::command(async)]
 fn mic_hint(output_id: String) -> MicHint {
     let Ok(devices) = audio::list_devices() else {
         return MicHint::default();
@@ -1151,7 +1335,7 @@ fn device_name() -> String {
     relaudio_core::net::device_name()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn stats(state: tauri::State<'_, AppState>) -> StatsDto {
     let mut s = StatsDto::default();
     state.server.fill(&mut s);
@@ -1194,12 +1378,12 @@ fn detect_feedback(s: &StatsDto) -> bool {
 }
 
 /// Bu makinenin yerel adresi — karşı tarafa yazılacak olan.
-#[tauri::command]
+#[tauri::command(async)]
 fn local_address() -> Option<String> {
     relaudio_core::net::local_address()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_minimize_to_tray(state: tauri::State<'_, AppState>, enabled: bool) {
     state.minimize_to_tray.store(enabled, Ordering::Relaxed);
     let mut c = state.config.lock().unwrap();
@@ -1212,7 +1396,7 @@ fn set_minimize_to_tray(state: tauri::State<'_, AppState>, enabled: bool) {
 /// Arayüzün anahtara ihtiyacı yok (yalnızca adları listeliyor). Anahtarı
 /// webview'e vermek, orada çalışan herhangi bir şeye eşleşmeyi devralma
 /// imkânı verirdi.
-#[tauri::command]
+#[tauri::command(async)]
 fn get_config(state: tauri::State<'_, AppState>) -> Config {
     let mut c = state.config.lock().unwrap().clone();
     for p in c.paired.values_mut() {
@@ -1230,7 +1414,7 @@ fn get_config(state: tauri::State<'_, AppState>) -> Config {
 /// kodu gösteren makinede anahtar Rust'ta kaydediliyor, ardından arayüzün
 /// eski kopyası bir sonraki ayar değişikliğinde onu **siliyordu** —
 /// eşleştirme bir an çalışıp kayboluyordu.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_config(app: tauri::AppHandle, state: tauri::State<'_, AppState>, mut config: Config) {
     state.minimize_to_tray.store(config.minimize_to_tray, Ordering::Relaxed);
     let enabled = config.remote_control;
@@ -1328,6 +1512,8 @@ pub fn run() {
                 cfg.remote_control,
                 cfg.device_id.clone(),
             );
+            // Kimlik bundan sonra değişmiyor; kilitsiz okunabilsin.
+            let _ = state.device_id.set(device_id.clone());
             *state.config.lock().unwrap() = cfg;
 
             // Kontrol kanalı keşiften ÖNCE açılıyor: fiilen bağlanılan port
@@ -1390,6 +1576,7 @@ pub fn run() {
             stop_headset,
             pair_with_peer,
             pairing_code,
+            verify_pairing,
             cancel_pairing,
             unpair,
             get_config,
@@ -1532,5 +1719,266 @@ pub fn show_main<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Kontrol işleyicisinin gerçek kodu üzerinden testler.
+    //!
+    //! `crates/relaudio-core/tests/pairing_over_the_wire.rs` protokolü kendi
+    //! sahte işleyicisiyle sınıyor; uygulamanın asıl `handle_control`'ünü
+    //! hiç çalıştırmıyordu. İşleyicide aynı kilidin iki kez alındığı bir
+    //! kendi kendini kilitleme (deadlock) o yüzden gözden kaçtı ve iki makinede
+    //! de arayüz donuyordu. Bu testler işleyiciyi ayrı bir iş parçacığında
+    //! zaman aşımıyla çalıştırıyor: kilitlenme "test asılı kaldı" değil,
+    //! "test başarısız" olarak görünsün.
+    use super::*;
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+
+    /// Testler ayar dosyasını geçici bir dizine yazsın; geliştiricinin kendi
+    /// ayarına dokunulmasın.
+    fn isolated_config() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            let dir = std::env::temp_dir().join(format!("relaudio-app-test-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            std::env::set_var(relaudio_core::config::CONFIG_DIR_ENV, &dir);
+        });
+    }
+
+    fn state_with_id(id: &str) -> Arc<AppState> {
+        isolated_config();
+        let state = AppState::default();
+        state.config.lock().unwrap().device_id = id.to_string();
+        let _ = state.device_id.set(id.to_string());
+        Arc::new(state)
+    }
+
+    /// İşleyiciyi zaman aşımıyla çalıştırır; takılırsa test başarısız olur.
+    fn run(state: &Arc<AppState>, req: ControlRequest) -> ControlReply {
+        let (tx, rx) = mpsc::channel();
+        let st = state.clone();
+        std::thread::spawn(move || {
+            let reply = handle_control(&st, &req, "192.168.1.50".parse().unwrap());
+            let _ = tx.send(reply);
+        });
+        rx.recv_timeout(Duration::from_secs(3))
+            .expect("kontrol işleyicisi 3 sn içinde cevap vermedi — kilitlenme var")
+    }
+
+    const PEER: &str = "0123456789abcdef0123456789abcdef";
+    const ME: &str = "fedcba9876543210fedcba9876543210";
+
+    /// Kodu gösteren taraf doğru kodla gelen isteğe cevap vermeli. Eskiden
+    /// ayar kilidi elde tutulurken `own_id` aynı kilidi yeniden alıyor ve
+    /// iş parçacığı sonsuza kadar kilitleniyordu.
+    #[test]
+    fn pairing_with_the_right_code_replies_instead_of_deadlocking() {
+        let state = state_with_id(ME);
+        let code = state.pairing.new_code().unwrap();
+        let reply = run(
+            &state,
+            ControlRequest::Pair { code, id: PEER.into(), name: "karşı".into() },
+        );
+        assert!(reply.ok, "eşleşme başarısız: {:?}", reply.error);
+        assert_eq!(reply.id.as_deref(), Some(ME), "kendi kimliğimizi döndürmeliyiz");
+        let key = reply.key.expect("anahtar dönmeli");
+        assert_eq!(state.config.lock().unwrap().paired[PEER].key, key);
+
+        // İşleyici kilidi bırakmış olmalı: arayüzün her 500 ms'de çağırdığı
+        // istatistik de aynı kilidi alıyor. Bırakmazsa pencere donuyor.
+        let (tx, rx) = mpsc::channel();
+        let st = state.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(st.config.lock().unwrap().paired.len());
+        });
+        assert_eq!(rx.recv_timeout(Duration::from_secs(2)).expect("ayar kilidi bırakılmadı"), 1);
+    }
+
+    #[test]
+    fn a_wrong_code_is_refused_promptly() {
+        let state = state_with_id(ME);
+        let code = state.pairing.new_code().unwrap();
+        let wrong = if code == "000000" { "111111" } else { "000000" };
+        let reply = run(
+            &state,
+            ControlRequest::Pair { code: wrong.into(), id: PEER.into(), name: "x".into() },
+        );
+        assert!(!reply.ok);
+        assert_eq!(reply.code.as_deref(), Some("pair_wrong"));
+    }
+
+    // — İki taraf birlikte —
+    //
+    // Önceki testler hep tek bir işleyiciyi sınıyordu; asıl kaçan şey iki
+    // tarafın birlikte davranışıydı. Burada iki ayrı uygulama durumu kendi
+    // kontrol sunucularını açıp gerçek TCP üzerinden konuşuyor. mDNS yerine
+    // birbirlerini elle kurulmuş bir `Peer` ile görüyorlar.
+
+    const A_ID: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const B_ID: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    fn side(id: &str) -> (Arc<AppState>, net::ControlServer) {
+        let state = state_with_id(id);
+        let st = state.clone();
+        let server = net::control_serve(0, move |req, from| handle_control(&st, req, from)).unwrap();
+        (state, server)
+    }
+
+    fn view(id: &str, name: &str, control_port: u16) -> net::Peer {
+        net::Peer {
+            id: format!("{name}-test"),
+            device_id: id.into(),
+            name: name.into(),
+            address: "127.0.0.1".into(),
+            addresses: vec!["127.0.0.1".into()],
+            port: 59101,
+            control_port,
+            os: "windows".into(),
+            listening: true,
+        }
+    }
+
+    fn key_of(state: &AppState, id: &str) -> Option<String> {
+        state.config.lock().unwrap().paired.get(id).map(|p| p.key.clone())
+    }
+
+    /// Kullanıcının izlediği yol: A kod gösteriyor, kod B'de yazılıyor.
+    /// İki taraf da aynı anahtarla bitmeli ve birbirini doğrulayabilmeli.
+    #[test]
+    fn two_sides_pair_and_both_confirm() {
+        let (a, sa) = side(A_ID);
+        let (b, sb) = side(B_ID);
+        let (a_seen_by_b, b_seen_by_a) = (view(A_ID, "A", sa.port()), view(B_ID, "B", sb.port()));
+
+        let code = a.pairing.new_code().unwrap();
+        let name = pair_with(&b, &a_seen_by_b, &code).expect("eşleşme başarısız");
+        assert_eq!(name, net::device_name());
+
+        let (ka, kb) = (key_of(&a, B_ID), key_of(&b, A_ID));
+        assert!(ka.is_some(), "kodu gösteren taraf anahtarı kaydetmeli");
+        assert_eq!(ka, kb, "iki taraf aynı anahtarla bitmeli");
+        assert_eq!(verify_with(&a, &b_seen_by_a), "ok");
+        assert_eq!(verify_with(&b, &a_seen_by_b), "ok");
+    }
+
+    /// Kullanıcının gerçekten düştüğü durum: eşleşme bir tarafta kaldı.
+    /// Eşleşmiş sanan taraf kod göstermiyor, öbürü kod bekliyordu. Doğrulama
+    /// bayat anahtarı silmeli; sonra yeniden eşleşme iki yönden de çalışmalı.
+    #[test]
+    fn a_pairing_left_on_one_side_heals_and_can_be_redone() {
+        let (a, sa) = side(A_ID);
+        let (b, sb) = side(B_ID);
+        let (a_seen_by_b, b_seen_by_a) = (view(A_ID, "A", sa.port()), view(B_ID, "B", sb.port()));
+        let code = a.pairing.new_code().unwrap();
+        pair_with(&b, &a_seen_by_b, &code).unwrap();
+
+        // Cevap yolda kayboldu / B tarafı kaldırdı: yalnızca A'da kaldı.
+        b.config.lock().unwrap().paired.remove(A_ID);
+
+        assert_eq!(verify_with(&a, &b_seen_by_a), "dropped");
+        assert!(key_of(&a, B_ID).is_none(), "bayat anahtar silinmeli");
+
+        // Bu sefer ters yönden: B kod gösteriyor, A yazıyor.
+        let code = b.pairing.new_code().unwrap();
+        pair_with(&a, &b_seen_by_a, &code).unwrap();
+        assert_eq!(verify_with(&b, &a_seen_by_b), "ok");
+        assert_eq!(verify_with(&a, &b_seen_by_a), "ok");
+    }
+
+    /// İki makinede aynı anda "Eşleş"e basılırsa iki taraf farklı anahtar
+    /// yazabiliyor. Doğrulama sonunda tutarlı bir duruma varmalı: ya ikisi de
+    /// aynı anahtarla eşleşmiş ya da ikisi de eşleşmemiş (yeniden eşleşilir).
+    #[test]
+    fn pressing_pair_on_both_sides_at_once_converges() {
+        let (a, sa) = side(A_ID);
+        let (b, sb) = side(B_ID);
+        let (a_seen_by_b, b_seen_by_a) = (view(A_ID, "A", sa.port()), view(B_ID, "B", sb.port()));
+        let (code_a, code_b) = (a.pairing.new_code().unwrap(), b.pairing.new_code().unwrap());
+
+        let (a2, bva) = (a.clone(), b_seen_by_a.clone());
+        let (b2, avb) = (b.clone(), a_seen_by_b.clone());
+        let t1 = std::thread::spawn(move || pair_with(&a2, &bva, &code_b));
+        let t2 = std::thread::spawn(move || pair_with(&b2, &avb, &code_a));
+        let _ = (t1.join().unwrap(), t2.join().unwrap());
+
+        for _ in 0..3 {
+            verify_with(&a, &b_seen_by_a);
+            verify_with(&b, &a_seen_by_b);
+        }
+        let (ka, kb) = (key_of(&a, B_ID), key_of(&b, A_ID));
+        assert_eq!(ka.is_some(), kb.is_some(), "biri eşleşmiş öbürü değil: çıkmaz");
+        assert_eq!(ka, kb, "iki taraf eşleşmişse anahtarlar aynı olmalı");
+    }
+
+    /// Eşleşmiş bir tarafın imzalı doğrulaması kabul edilmeli; tanınmayan
+    /// tarafınki "eşleşme yok" almalı ki o taraf bayat anahtarını silsin.
+    #[test]
+    fn verify_confirms_a_real_pairing_and_flags_a_missing_one() {
+        let state = state_with_id(ME);
+        let key = "ab".repeat(32);
+        state.config.lock().unwrap().paired.insert(
+            PEER.into(),
+            PairedPeer { key: key.clone(), name: "karşı".into() },
+        );
+        let verify = |id: &str, k: &str| {
+            let (nonce, ts, mac) = net::sign_request(k, VERIFY_ROLE, 0).unwrap();
+            ControlRequest::Verify { auth: ControlAuth { id: id.into(), nonce, ts, mac } }
+        };
+
+        assert!(run(&state, verify(PEER, &key)).ok, "geçerli eşleşme doğrulanmalı");
+
+        let r = run(&state, verify("11111111111111111111111111111111", &key));
+        assert_eq!(r.code.as_deref(), Some("needs_pairing"), "tanınmayan kimlik");
+
+        let r = run(&state, verify(PEER, &"cd".repeat(32)));
+        assert_eq!(r.code.as_deref(), Some("auth_bad"), "farklı anahtar");
+    }
+
+    /// Ağda yakalanan imzalı bir doğrulama, imzalı bir "başlat" isteği olarak
+    /// yeniden kullanılamamalı: imza rol alanını kapsıyor ve doğrulama
+    /// gerçek bir rol değil.
+    #[test]
+    fn a_captured_verify_signature_cannot_start_a_session() {
+        let state = state_with_id(ME);
+        let key = "ab".repeat(32);
+        state.config.lock().unwrap().paired.insert(
+            PEER.into(),
+            PairedPeer { key: key.clone(), name: "karşı".into() },
+        );
+        let (nonce, ts, mac) = net::sign_request(&key, VERIFY_ROLE, 0).unwrap();
+        let reply = run(
+            &state,
+            ControlRequest::StartHeadset {
+                role: "remote".into(),
+                audio_port: 0,
+                name: "saldırgan".into(),
+                auth: Some(ControlAuth { id: PEER.into(), nonce, ts, mac }),
+            },
+        );
+        assert!(!reply.ok, "doğrulama imzasıyla oturum başlamamalı");
+        assert_eq!(reply.code.as_deref(), Some("auth_bad"));
+        assert!(!state.headset_active.load(Ordering::Relaxed));
+    }
+
+    /// Eşleşmemiş bir cihazın başlatma isteği reddedilmeli — ses aygıtı
+    /// açılmadan, hemen.
+    #[test]
+    fn an_unpaired_start_request_is_refused_without_touching_audio() {
+        let state = state_with_id(ME);
+        let reply = run(
+            &state,
+            ControlRequest::StartHeadset {
+                role: "remote".into(),
+                audio_port: 59101,
+                name: "yabancı".into(),
+                auth: None,
+            },
+        );
+        assert!(!reply.ok);
+        assert_eq!(reply.code.as_deref(), Some("needs_pairing"));
+        assert!(!state.headset_active.load(Ordering::Relaxed));
     }
 }

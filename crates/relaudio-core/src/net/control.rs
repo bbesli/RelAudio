@@ -120,6 +120,15 @@ pub enum Request {
     StopHeadset,
     /// Karşı tarafın ayakta ve bu sürümü konuşuyor olduğunu doğrular.
     Ping,
+    /// "Beni hâlâ tanıyor musun?" — eşleşme anahtarıyla imzalı.
+    ///
+    /// Eşleşme bir tarafta kalıp öbüründe kaybolabiliyor: cevap yolda
+    /// kaybolur, biri Ayarlar'dan kaldırır, iki taraf aynı anda eşleşip
+    /// farklı anahtar yazar. O zaman eşleşmiş sanan taraf kod göstermiyor,
+    /// öbürü kod bekliyor ve kullanıcı çıkmazda kalıyordu. Bu istek
+    /// bayat anahtarı erkenden ortaya çıkarıyor. İmza `role = "verify"`,
+    /// `audio_port = 0` ile atılıyor.
+    Verify { auth: Auth },
     /// "Ekranında duran kod bu; eşleşelim."
     ///
     /// Kodu **gösteren** taraf bu isteği alıyor. Kullanıcı kodu okuduğu
@@ -328,6 +337,13 @@ where
     F: Fn(&Request, IpAddr) -> Reply,
 {
     let io = |e: std::io::Error| Error::Stream(e.to_string());
+    // Dinleyici engellemesiz (kapanma bayrağına bakabilmek için). Windows'ta
+    // `accept()`'in döndürdüğü soket bu modu **miras alıyor** (Linux'ta
+    // almıyor): istek baytları henüz gelmeden okumaya kalkınca `read` hemen
+    // `WouldBlock` dönüyor, işleyici düşüyor ve karşı taraf "cevap vermedi"
+    // alıyordu — aralıklı, yalnızca Windows'ta. Okuma zaman aşımı yalnızca
+    // engelleyen sokette işe yarıyor.
+    stream.set_nonblocking(false).map_err(io)?;
     stream.set_read_timeout(Some(IO_TIMEOUT)).map_err(io)?;
     stream.set_write_timeout(Some(IO_TIMEOUT)).map_err(io)?;
 
@@ -374,25 +390,36 @@ where
 ///
 /// İkisini tek değere bağlamak ya erken vazgeçmeye ya da uzun donmaya yol
 /// açıyordu.
+///
+/// Hatalar ayrıştırılıyor çünkü kullanıcıya söylenecek şey farklı:
+/// [`Error::Unreachable`] (bağlanılamadı — makine kapalı ya da güvenlik
+/// duvarı) ve [`Error::NoReply`] (bağlanıldı ama cevap gelmedi). Eskiden ikisi
+/// de "audio stream error: … os error 10060" olarak görünüyordu.
 pub fn send(addr: SocketAddr, req: &Request, connect: Duration, io_timeout: Duration) -> Result<Reply> {
-    let io = |e: std::io::Error| Error::Stream(e.to_string());
-    let stream = TcpStream::connect_timeout(&addr, connect)
-        .map_err(|e| Error::Stream(format!("{addr} could not be reached: {e}")))?;
-    stream.set_read_timeout(Some(io_timeout)).map_err(io)?;
-    stream.set_write_timeout(Some(io_timeout)).map_err(io)?;
+    let unreachable = |e: std::io::Error| Error::Unreachable(format!("{addr} ({e})"));
+    let stream = TcpStream::connect_timeout(&addr, connect).map_err(unreachable)?;
+    stream.set_read_timeout(Some(io_timeout)).map_err(unreachable)?;
+    stream.set_write_timeout(Some(io_timeout)).map_err(unreachable)?;
 
-    let mut writer = stream.try_clone().map_err(io)?;
+    let mut writer = stream.try_clone().map_err(unreachable)?;
     let mut text = serde_json::to_string(&Message::new(req.clone()))
         .map_err(|e| Error::Stream(format!("request could not be encoded: {e}")))?;
     text.push('\n');
-    writer.write_all(text.as_bytes()).map_err(io)?;
-    writer.flush().map_err(io)?;
+    writer.write_all(text.as_bytes()).map_err(unreachable)?;
+    writer.flush().map_err(unreachable)?;
 
     let mut reader = BufReader::new(stream).take(MAX_LINE);
     let mut line = String::new();
-    reader.read_line(&mut line).map_err(io)?;
+    reader.read_line(&mut line).map_err(|e| match e.kind() {
+        // Windows'ta okuma zaman aşımı `TimedOut` (10060), Unix'te
+        // `WouldBlock` olarak geliyor.
+        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock => {
+            Error::NoReply(addr.to_string())
+        }
+        _ => unreachable(e),
+    })?;
     if line.trim().is_empty() {
-        return Err(Error::Stream(format!("{addr} closed the connection without replying")));
+        return Err(Error::NoReply(addr.to_string()));
     }
     serde_json::from_str::<Reply>(line.trim())
         .map_err(|e| Error::Stream(format!("malformed reply from {addr}: {e}")))
@@ -496,8 +523,49 @@ Reply::failed("windows-box".into(), "need_cable", "no virtual audio cable instal
         let started = std::time::Instant::now();
         // 1 numaralı port ayrıcalıklı ve dinlenmiyor: bağlantı hemen reddedilir.
         let r = send(local(1), &Request::Ping, Duration::from_secs(2), Duration::from_secs(5));
-        assert!(r.is_err());
+        assert!(matches!(r, Err(Error::Unreachable(_))), "ulaşılamadı olarak raporlanmalı: {r:?}");
         assert!(started.elapsed() < Duration::from_secs(3), "zaman aşımına uyulmalı");
+    }
+
+    /// İstek bağlantıdan biraz sonra gelse de cevaplanmalı.
+    ///
+    /// Windows'ta kabul edilen soket dinleyicinin engellemesiz modunu miras
+    /// alıyordu; işleyici veri gelmeden okuyunca hemen düşüyordu. Gerçek ağda
+    /// istemcinin yazması birkaç milisaniye gecikince aralıklı "cevap
+    /// vermedi" hatası çıkıyordu.
+    #[test]
+    fn a_request_that_arrives_late_is_still_answered() {
+        let server = serve(0, |_, _| Reply::ok("box".into(), None)).unwrap();
+        let mut s = TcpStream::connect(local(server.port())).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        s.write_all(br#"{"v":1,"body":"ping"}"#).unwrap();
+        s.write_all(b"\n").unwrap();
+        let mut line = String::new();
+        BufReader::new(s).read_line(&mut line).unwrap();
+        let reply: Reply = serde_json::from_str(line.trim())
+            .unwrap_or_else(|e| panic!("cevap gelmedi ya da bozuk ({e}): {line:?}"));
+        assert!(reply.ok);
+    }
+
+    /// Bağlanılıp cevap gelmezse bu "ulaşılamadı" değil, "cevap vermedi".
+    /// İki durumda kullanıcıya söylenecek şey farklı; eskiden ikisi de aynı
+    /// anlaşılmaz "os error 10060" idi.
+    #[test]
+    fn a_peer_that_accepts_but_never_answers_is_reported_as_no_reply() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        // Bağlantıyı kabul et, hiçbir şey yazma — kilitlenmiş bir eş gibi.
+        let hold = std::thread::spawn(move || {
+            let (s, _) = listener.accept().unwrap();
+            std::thread::sleep(Duration::from_millis(1500));
+            drop(s);
+        });
+        let started = std::time::Instant::now();
+        let r = send(local(port), &Request::Ping, Duration::from_secs(1), Duration::from_millis(400));
+        assert!(matches!(r, Err(Error::NoReply(_))), "cevapsız olarak raporlanmalı: {r:?}");
+        assert!(started.elapsed() < Duration::from_secs(1), "okuma zaman aşımına uyulmalı");
+        hold.join().unwrap();
     }
 
     #[test]

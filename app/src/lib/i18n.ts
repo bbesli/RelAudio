@@ -200,6 +200,8 @@ const tr: Dict = {
   "peer.manualOnly": "Elle başlatılır",
   "stats.foreign": "Reddedilen (yabancı)",
   "remote.manual_target": "Uzaktan başlatma yalnızca yukarıdaki listeden seçilen makineyle çalışır. Adres yazarsan bu makine başlar, karşıda kulaklık modunu elle başlatırsın.",
+  "remote.unreachable": "Karşı makineye ulaşılamadı. RelAudio orada açık mı? Açıksa büyük ihtimalle o makinedeki Windows Güvenlik Duvarı RelAudio'yu engelliyor — README'deki Sorun giderme bölümünde tek satırlık çözüm var.",
+  "remote.no_reply": "Karşı makine bağlantıyı kabul etti ama cevap vermedi. İki makinede de RelAudio'nun aynı ve güncel sürüm olduğundan emin ol, sonra tekrar dene.",
 };
 
 const en: Dict = {
@@ -374,6 +376,8 @@ const en: Dict = {
   "peer.manualOnly": "Start by hand",
   "stats.foreign": "Rejected (foreign)",
   "remote.manual_target": "Remote start only works with a machine picked from the list above. With a typed address, this machine starts and you start headset mode on the other one by hand.",
+  "remote.unreachable": "Could not reach the other machine. Is RelAudio open there? If it is, Windows Firewall on that machine is most likely blocking RelAudio — Troubleshooting in the README has the one-line fix.",
+  "remote.no_reply": "The other machine accepted the connection but didn't answer. Make sure both machines run the same, current RelAudio version, then try again.",
 };
 
 const es: Dict = {
@@ -515,6 +519,8 @@ const es: Dict = {
   "peer.manualOnly": "Inicio manual",
   "stats.foreign": "Rechazados (ajenos)",
   "remote.manual_target": "El inicio remoto solo funciona con una máquina elegida de la lista. Con una dirección escrita, esta máquina arranca y en la otra inicias el modo auriculares a mano.",
+  "remote.unreachable": "No se pudo contactar con la otra máquina. ¿Está RelAudio abierto allí? Si lo está, probablemente el Firewall de Windows de esa máquina lo bloquea; la sección de solución de problemas del README tiene el arreglo.",
+  "remote.no_reply": "La otra máquina aceptó la conexión pero no respondió. Asegúrate de que ambas tengan la misma versión actual de RelAudio e inténtalo de nuevo.",
 };
 
 const de: Dict = {
@@ -654,6 +660,8 @@ const de: Dict = {
   "peer.manualOnly": "Manuell starten",
   "stats.foreign": "Abgewiesen (fremd)",
   "remote.manual_target": "Fernstart funktioniert nur mit einem Rechner aus der Liste oben. Bei einer eingegebenen Adresse startet dieser Rechner, den anderen startest du von Hand.",
+  "remote.unreachable": "Der andere Rechner ist nicht erreichbar. Ist RelAudio dort geöffnet? Falls ja, blockiert vermutlich die Windows-Firewall auf diesem Rechner RelAudio — die Fehlerbehebung im README hat die Lösung in einer Zeile.",
+  "remote.no_reply": "Der andere Rechner hat die Verbindung angenommen, aber nicht geantwortet. Stelle sicher, dass auf beiden dieselbe aktuelle RelAudio-Version läuft, und versuche es erneut.",
 };
 
 const fr: Dict = {
@@ -793,6 +801,8 @@ const fr: Dict = {
   "peer.manualOnly": "Démarrage manuel",
   "stats.foreign": "Rejetés (étrangers)",
   "remote.manual_target": "Le démarrage à distance ne fonctionne qu'avec une machine choisie dans la liste ci-dessus. Avec une adresse saisie, cette machine démarre et tu lances le mode casque sur l'autre à la main.",
+  "remote.unreachable": "Impossible de joindre l'autre machine. RelAudio y est-il ouvert ? Si oui, le pare-feu Windows de cette machine le bloque probablement — la section Dépannage du README donne la solution en une ligne.",
+  "remote.no_reply": "L'autre machine a accepté la connexion mais n'a pas répondu. Vérifie que les deux ont la même version récente de RelAudio, puis réessaie.",
 };
 
 const pt: Dict = {
@@ -932,6 +942,8 @@ const pt: Dict = {
   "peer.manualOnly": "Início manual",
   "stats.foreign": "Rejeitados (externos)",
   "remote.manual_target": "O início remoto só funciona com uma máquina escolhida na lista acima. Com um endereço escrito, esta máquina arranca e inicias o modo auscultadores na outra à mão.",
+  "remote.unreachable": "Não foi possível contactar a outra máquina. O RelAudio está aberto lá? Se estiver, a Firewall do Windows dessa máquina provavelmente está a bloqueá-lo — a secção de resolução de problemas do README tem a solução.",
+  "remote.no_reply": "A outra máquina aceitou a ligação mas não respondeu. Confirma que ambas têm a mesma versão atual do RelAudio e tenta de novo.",
 };
 
 const ru: Dict = {
@@ -1071,6 +1083,8 @@ const ru: Dict = {
   "peer.manualOnly": "Запуск вручную",
   "stats.foreign": "Отклонено (чужие)",
   "remote.manual_target": "Удалённый запуск работает только с машиной из списка выше. При вводе адреса запускается эта машина, а на другой режим гарнитуры нужно включить вручную.",
+  "remote.unreachable": "Не удалось связаться с другой машиной. Открыт ли там RelAudio? Если да, скорее всего его блокирует брандмауэр Windows на той машине — в разделе «Устранение неполадок» README есть решение в одну строку.",
+  "remote.no_reply": "Другая машина приняла соединение, но не ответила. Убедитесь, что на обеих стоит одна и та же актуальная версия RelAudio, и попробуйте снова.",
 };
 
 const zh: Dict = {
@@ -1202,6 +1216,8 @@ const zh: Dict = {
   "peer.manualOnly": "需手动启动",
   "stats.foreign": "已拒绝（外部）",
   "remote.manual_target": "远程启动仅适用于从上方列表中选择的机器。手动输入地址时，本机会启动，另一台需要手动启动耳机模式。",
+  "remote.unreachable": "无法连接到另一台机器。那台机器上打开了 RelAudio 吗？如果已打开，很可能是那台机器的 Windows 防火墙阻止了 RelAudio——README 的故障排除部分有一行修复命令。",
+  "remote.no_reply": "另一台机器接受了连接但没有回应。请确认两台机器运行相同的最新 RelAudio 版本，然后重试。",
 };
 
 const hi: Dict = {
@@ -1333,6 +1349,8 @@ const hi: Dict = {
   "peer.manualOnly": "हाथ से शुरू करें",
   "stats.foreign": "अस्वीकृत (बाहरी)",
   "remote.manual_target": "दूर से शुरू करना केवल ऊपर की सूची से चुनी गई मशीन के साथ काम करता है। पता टाइप करने पर यह मशीन शुरू होती है, दूसरी पर हेडसेट मोड हाथ से शुरू करें।",
+  "remote.unreachable": "दूसरी मशीन तक नहीं पहुँच सके। क्या वहाँ RelAudio खुला है? अगर हाँ, तो शायद उस मशीन का Windows फ़ायरवॉल RelAudio को रोक रहा है — README के समस्या निवारण में एक पंक्ति का हल है।",
+  "remote.no_reply": "दूसरी मशीन ने कनेक्शन स्वीकार किया पर जवाब नहीं दिया। सुनिश्चित करें कि दोनों पर RelAudio का एक ही नया संस्करण है, फिर दोबारा कोशिश करें।",
 };
 
 const ar: Dict = {
@@ -1464,6 +1482,8 @@ const ar: Dict = {
   "peer.manualOnly": "تشغيل يدوي",
   "stats.foreign": "مرفوض (غريب)",
   "remote.manual_target": "التشغيل عن بُعد يعمل فقط مع جهاز تختاره من القائمة أعلاه. عند كتابة عنوان، يبدأ هذا الجهاز وتشغّل وضع السماعة على الآخر يدويًا.",
+  "remote.unreachable": "تعذّر الوصول إلى الجهاز الآخر. هل RelAudio مفتوح هناك؟ إن كان كذلك فغالبًا جدار حماية Windows على ذلك الجهاز يحظره — قسم استكشاف الأخطاء في README فيه الحل.",
+  "remote.no_reply": "قبل الجهاز الآخر الاتصال لكنه لم يرد. تأكد من أن الجهازين يشغّلان الإصدار الحالي نفسه من RelAudio ثم أعد المحاولة.",
 };
 
 export const messages: Record<string, Dict> = { tr, en, es, zh, hi, ar, pt, ru, de, fr };

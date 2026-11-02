@@ -3,7 +3,7 @@
     listDevices, startServer, stopServer, startPlayer, stopPlayer, getStats,
     setMinimizeToTray, getLocalAddress, getPeers, getDeviceName, getMicHint,
     getConfig, setConfig, getConfigPath, getLogPath, setTrayLabels,
-    getHeadsetPlan, startHeadset, stopHeadset, pairWithPeer, getPairingCode,
+    getHeadsetPlan, startHeadset, stopHeadset, pairWithPeer, getPairingCode, verifyPairing,
     cancelPairing, unpair,
     type Device, type Stats, type Peer, type MicHint, type Config,
     type HeadsetPlan, type HeadsetRole, type HeadsetStartResult,
@@ -65,12 +65,20 @@
     }
   }
 
+  /** Bir tick sürerken yenisi başlamasın. Komutlar ana iş parçacığı dışında
+   *  çalışıyor; oturum başlarken bir `stats` çağrısı kilit bekleyebiliyor ve
+   *  500 ms'lik zamanlayıcı üst üste çağrı biriktirip eski bir sonucu yenisinin
+   *  üstüne yazabiliyordu. */
+  let ticking = false;
   async function tick() {
+    if (ticking) return;
+    ticking = true;
     try {
       stats = await getStats();
       peers = await getPeers();
       if (stats.last_error) error = stats.last_error;
     } catch { /* pencere kapanırken olabilir */ }
+    finally { ticking = false; }
   }
 
   /** Ayarlar okunamazsa kullanılacak taban. */
@@ -138,8 +146,13 @@
     if (!selectedPeer && !manualTarget && peers.length === 1) selectedPeer = peers[0].id;
   });
 
+  // Yalnızca çıkış aygıtı değişince. `cfg` her ayar değişikliğinde yeni bir
+  // nesne oluyor; doğrudan ona bağlı bir etki her tuş vuruşunda aygıt sayımı
+  // yapan `mic_hint`'i yeniden çağırıyordu. `$derived` ilkel değer değişmedikçe
+  // haber vermiyor.
+  const playerDevice = $derived(cfg?.player_device ?? "");
   $effect(() => {
-    const id = cfg?.player_device;
+    const id = playerDevice;
     if (!id) { micHint = null; return; }
     getMicHint(id).then((h) => (micHint = h)).catch(() => (micHint = null));
   });
@@ -271,6 +284,24 @@
     else if (!showing && has) cancelPairing().catch(() => {});
   });
 
+  // Eşleşmiş sandığımız eşi düzenli doğrula. Eşleşme bir tarafta kalıp
+  // öbüründe kaybolabiliyor (cevap yolda kaybolur, biri Ayarlar'dan kaldırır,
+  // iki taraf aynı anda eşleşir). O zaman bu taraf kod göstermiyor, öbürü kod
+  // bekliyor ve kullanıcı çıkmazda kalıyordu. Karşı taraf bizi tanımıyorsa
+  // Rust bayat anahtarı siliyor; sonraki istatistikte kart kendiliğinden çıkıyor.
+  //
+  // Bağımlılıklar bilerek ilkel: `chosenPeer` her 500 ms'de yeni bir nesne,
+  // ona bağlanan bir etki her tick'te yeniden çalışıp ağa istek yağdırırdı.
+  const chosenCanRemote = $derived(!!chosenPeer?.can_remote_start);
+  $effect(() => {
+    const id = selectedPeer;
+    if (!id || !peerPaired || !chosenCanRemote || tab !== "headset" || headsetRunning) return;
+    const check = () => { verifyPairing(id).catch(() => {}); };
+    check();
+    const timer = setInterval(check, 10_000);
+    return () => clearInterval(timer);
+  });
+
   let pairingBusy = $state(false);
   let pairedWith = $state<string | null>(null);
 
@@ -330,7 +361,7 @@
     "device_open", "version", "needs_pairing",
     "pair_no_code", "pair_expired", "pair_wrong", "pair_too_many",
     "pair_no_random", "pair_bad_reply", "auth_stale", "auth_replay", "auth_bad",
-    "peer_gone", "no_control", "manual_target",
+    "peer_gone", "no_control", "manual_target", "unreachable", "no_reply",
   ]);
   const remoteError = $derived(
     !remoteResult?.remote_error ? null

@@ -499,7 +499,8 @@ Panel hangisi olduğunu yazıyor.
 
 | Yazan | Ne yapmalı |
 |---|---|
-| eşleşmemişsin / seninle eşleşmiş değil | Yeniden eşleş (Adım 4). Bir taraf Ayarlar'dan kaldırıldıysa, diğer taraftaki bayat eşleşme bir sonraki başlatmada kendiliğinden temizleniyor. |
+| eşleşmemişsin / seninle eşleşmiş değil | Yeniden eşleş (Adım 4). Eşleşme yalnızca bir tarafta kaldıysa (biri Ayarlar'dan kaldırdı ya da cevap yolda kayboldu), onu hâlâ tutan taraf karşı makine seçiliyken 10 saniye içinde fark ediyor ve eşleştirme kartı kendiliğinden geri geliyor. |
+| bağlantıyı kabul etti ama cevap vermedi | İki makinede de aynı RelAudio sürümü olmalı. İkisini de güncelle, tekrar dene. |
 | karşı makine listede **Elle başlatılır** diyor | Eski bir RelAudio çalıştırıyor (0.2.0 öncesi). Güncelle — eski sürümler eşleşemez. |
 | adresi listeden seçmek yerine yazdın | Uzaktan başlatma, makinenin listeden seçilmesini gerektiriyor: eşleşme adrese göre değil makinenin kimliğine göre bulunuyor. |
 | uzaktan başlatmayı kabul etmiyor | Karşı makinede Ayarlar → **Uzaktan başlatmaya izin ver** kapatılmış. Geri aç. |

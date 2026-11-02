@@ -8,8 +8,18 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+/// Ayar dizinini geçersiz kılan ortam değişkeni.
+///
+/// Testler gerçek kontrol işleyicisini çalıştırıyor ve o işleyici eşleşmeyi
+/// diske yazıyor; bu değişken olmadan test, geliştiricinin kendi ayar
+/// dosyasının üstüne yazardı. Taşınabilir kurulum için de kullanılabilir.
+pub const CONFIG_DIR_ENV: &str = "RELAUDIO_CONFIG_DIR";
+
 /// Ayar dosyasının yeri.
 pub fn config_path() -> PathBuf {
+    if let Some(dir) = std::env::var_os(CONFIG_DIR_ENV).filter(|d| !d.is_empty()) {
+        return PathBuf::from(dir).join("config.toml");
+    }
     let base = if cfg!(target_os = "windows") {
         std::env::var_os("APPDATA").map(PathBuf::from)
     } else {
